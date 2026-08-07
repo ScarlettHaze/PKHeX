@@ -34,8 +34,7 @@ public partial class SAV_Safari4 : Form
     private int BlockIndex = -1;
 
     /// <summary>
-    /// Internal area identifiers from the decomp (SAFARI_ZONE_AREA_*). Replace with localized
-    /// area names once the mapping to the in-game text bank is confirmed.
+    /// Map areas by name.
     /// </summary>
     private static readonly string[] AreaNames =
     [
@@ -49,7 +48,7 @@ public partial class SAV_Safari4 : Form
         : $"(Unused {index})";
 
     /// <summary>
-    /// Placeable Safari Zone object identifiers (obj_id), in ID order starting at 0.
+    /// Placeable Safari Zone objects in ID order starting at 0.
     /// </summary>
     private static readonly string[] ObjectNames =
     [
@@ -79,7 +78,6 @@ public partial class SAV_Safari4 : Form
         if (known >= 0)
             return (byte)known;
 
-        // Fall back to a raw numeric value, e.g. an "(Unknown N)" placeholder or a hand-typed number.
         var digits = text.Trim();
         if (digits.StartsWith('(') && digits.EndsWith(')'))
             digits = digits[1..^1];
@@ -95,12 +93,12 @@ public partial class SAV_Safari4 : Form
     private void SetupCombos()
     {
         CB_Layout.Items.Clear();
-        CB_Layout.Items.Add("Mine");
-        CB_Layout.Items.Add("Friend");
+        CB_Layout.Items.Add("Player's");
+        CB_Layout.Items.Add("Friend's");
 
         CB_GameLayout.Items.Clear();
-        CB_GameLayout.Items.Add("Mine");
-        CB_GameLayout.Items.Add("Friend");
+        CB_GameLayout.Items.Add("Player's");
+        CB_GameLayout.Items.Add("Friend's");
 
         CB_FriendGender.Items.Clear();
         CB_FriendGender.Items.Add("Male");
@@ -224,7 +222,7 @@ public partial class SAV_Safari4 : Form
         if (BlockIndex == index)
             return;
 
-        SaveObjects(); // flush the previously shown block
+        SaveObjects();
         BlockIndex = index;
 
         Loading = true;

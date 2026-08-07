@@ -9,7 +9,6 @@ namespace PKHeX.Core;
 /// </summary>
 /// <remarks>
 /// size 0x5FC, at 0xC13C within <see cref="SAV4HGSS"/> General.
-/// Decomp reference: <c>SAFARI_SAVE</c> in src/savedata/safari_sv.c
 /// </remarks>
 [TypeConverter(typeof(ExpandableObjectConverter))]
 public sealed class Safari4(Memory<byte> Raw)
@@ -42,7 +41,7 @@ public sealed class Safari4(Memory<byte> Raw)
     /// </summary>
     public byte LevelUpDelayCount { get => Data[OfsFooter]; set => Data[OfsFooter] = value; }
 
-    // 0x5F9: u8 obj_level:6; u8 game_layout:2;
+    // 0x5F9: u8 objectlevel:6; u8 maplayout:2;
 
     /// <summary>
     /// Unlock level for placeable objects; raised over time by Baoba's calls.
@@ -71,7 +70,6 @@ public sealed class Safari4(Memory<byte> Raw)
         set => WriteUInt16LittleEndian(Data[(OfsFooter + 2)..], value);
     }
 
-    /// <summary>Cap enforced by <c>SafariSv_ObjLevelSet</c>; confirm against safari_sys.h before shipping.</summary>
     public const byte MaxObjectLevel = 0x3F;
 }
 
@@ -84,7 +82,7 @@ public sealed class SafariLayout4(Memory<byte> Raw)
 {
     public const int SIZE = 0x2E8;
     public const int BlockCount = 6;
-    public const int MapCount = 12; // SAFARI_MAP_MAX
+    public const int MapCount = 12;
 
     public readonly Memory<byte> Raw = Raw;
     private Span<byte> Data => Raw.Span;
@@ -124,7 +122,7 @@ public sealed class SafariBlock4(Memory<byte> Raw)
     public SafariMap4 MapID { get => (SafariMap4)Data[0]; set => Data[0] = (byte)value; }
 
     /// <summary>
-    /// Objects in use. Entries must stay front-packed: the game reads <c>obj[0..ObjectCount)</c> only.
+    /// Objects in use. Entries must stay front-packed.
     /// </summary>
     public byte ObjectCount
     {
@@ -140,7 +138,7 @@ public sealed class SafariBlock4(Memory<byte> Raw)
         return new(Raw.Slice(OfsObjects + (index * SafariObject4.SIZE), SafariObject4.SIZE));
     }
 
-    /// <summary>Removes an object and compacts the remainder, matching <c>SafariLayout_DelObj</c>.</summary>
+    /// <summary>Removes an object and compacts the remainder.</summary>
     public void RemoveObject(int index)
     {
         var count = ObjectCount;
@@ -220,8 +218,7 @@ public sealed class SafariManager4(Memory<byte> Raw)
 }
 
 /// <summary>
-/// Safari Zone area types. Names are the decomp's internal identifiers (SAFARI_ZONE_AREA_*);
-/// verify the English area names against the in-game text bank before surfacing them in the UI.
+/// Safari Zone area types.
 /// </summary>
 public enum SafariMap4 : byte
 {
