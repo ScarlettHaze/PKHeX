@@ -284,8 +284,32 @@ public sealed class SAV4HGSS : SAV4, IBoxDetailName, IBoxDetailWallpaper
     public Safari4 Safari => new(GeneralBuffer.Slice(0xC13C, Safari4.SIZE));
 
     // Apricorn Pouch
-    public int GetApricornCount(int index) => General[0xE558 + index];
-    public void SetApricornCount(int index, int count) => General[0xE558 + index] = (byte)count;
+    private const int OFS_Apricorn = 0xE558;
+    private const int ApricornCount = 7;
+    public int GetApricornCount(int index) => General[OFS_Apricorn + index];
+    public void SetApricornCount(int index, int count) => General[OFS_Apricorn + index] = (byte)count;
+
+    // Apricorns currently deposited with Kurt, immediately after the pouch.
+    private const int OFS_ApricornKurtNum = OFS_Apricorn + ApricornCount; // 0xE55F
+    private const int OFS_ApricornKurtColor = OFS_ApricornKurtNum + 1; // 0xE560
+
+    /// <summary>
+    /// Number of Apricorns currently deposited with Kurt, awaiting a crafted Ball.
+    /// </summary>
+    public byte ApricornKurtDepositCount
+    {
+        get => General[OFS_ApricornKurtNum];
+        set => General[OFS_ApricornKurtNum] = value;
+    }
+
+    /// <summary>
+    /// Color/type of the Apricorn batch currently deposited with Kurt; matches the pouch index order (<see cref="GetApricornCount"/>).
+    /// </summary>
+    public Apricorn4Color ApricornKurtDepositColor
+    {
+        get => (Apricorn4Color)General[OFS_ApricornKurtColor];
+        set => General[OFS_ApricornKurtColor] = (byte)value;
+    }
 
     // Pokewalker
     public const int WalkerPair = 0xE5E0;

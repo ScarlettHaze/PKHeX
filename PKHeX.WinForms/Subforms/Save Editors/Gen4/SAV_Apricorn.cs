@@ -60,12 +60,20 @@ public partial class SAV_Apricorn : Form
             dgv.Rows[i].Cells[0].Value = itemNames[itemId];
         }
         LoadCount();
+        LoadKurtDeposit();
     }
 
     private void LoadCount()
     {
         for (int i = 0; i < Count; i++)
             dgv.Rows[i].Cells[1].Value = SAV.GetApricornCount(i).ToString();
+    }
+
+    private void LoadKurtDeposit()
+    {
+        NUD_KurtCount.Value = Math.Clamp((decimal)SAV.ApricornKurtDepositCount, NUD_KurtCount.Minimum, NUD_KurtCount.Maximum);
+        var color = SAV.ApricornKurtDepositColor;
+        CB_KurtColor.SelectedIndex = Enum.IsDefined(color) ? (int)color : 0;
     }
 
     private void B_Cancel_Click(object sender, EventArgs e)
@@ -95,6 +103,8 @@ public partial class SAV_Apricorn : Form
             var count = int.TryParse(cells[1].Value?.ToString() ?? "0", out var val) ? val : 0;
             SAV.SetApricornCount(i, Math.Min(byte.MaxValue, count));
         }
+        SAV.ApricornKurtDepositCount = (byte)NUD_KurtCount.Value;
+        SAV.ApricornKurtDepositColor = (Apricorn4Color)CB_KurtColor.SelectedIndex;
         Origin.CopyChangesFrom(SAV);
         Close();
     }
