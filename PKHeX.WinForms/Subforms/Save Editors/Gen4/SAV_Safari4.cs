@@ -48,6 +48,48 @@ public partial class SAV_Safari4 : Form
         ? AreaNames[index]
         : $"(Unused {index})";
 
+    /// <summary>
+    /// Placeable Safari Zone object identifiers (obj_id), in ID order starting at 0.
+    /// </summary>
+    private static readonly string[] ObjectNames =
+    [
+        "None",
+        "Shrub", "Red Flower", "White Flower", "Tree", "Tree Stump", "Branch",
+        "Small Rock", "Large Rock", "Mossy Rock",
+        "Puddle", "Fountain", "Watering Hole",
+        "Bench",
+        "Short Fence (Horizontal)", "Short Fence (Vertical)",
+        "Long Fence (Horizontal)", "Long Fence (Vertical)",
+        "Signboard", "Statue", "Flag", "Street Lamp",
+        "Guidepost (Right)", "Guidepost (Left)",
+        "Trash Can",
+    ];
+
+    private static string GetObjectName(int id) => (uint)id < ObjectNames.Length
+        ? ObjectNames[id]
+        : $"(Unknown {id})";
+
+    private static byte ParseObjectID(object? value)
+    {
+        var text = value?.ToString();
+        if (text is null)
+            return 0;
+
+        var known = Array.IndexOf(ObjectNames, text);
+        if (known >= 0)
+            return (byte)known;
+
+        // Fall back to a raw numeric value, e.g. an "(Unknown N)" placeholder or a hand-typed number.
+        var digits = text.Trim();
+        if (digits.StartsWith('(') && digits.EndsWith(')'))
+            digits = digits[1..^1];
+        var spaceIndex = digits.LastIndexOf(' ');
+        if (spaceIndex >= 0)
+            digits = digits[(spaceIndex + 1)..];
+
+        return byte.TryParse(digits, out var result) ? result : (byte)0;
+    }
+
     #region Setup
 
     private void SetupCombos()
@@ -107,7 +149,18 @@ public partial class SAV_Safari4 : Form
         DGV_Objects.Rows.Clear();
         DGV_Objects.Columns.Clear();
 
-        foreach (var header in (ReadOnlySpan<string>)["ID", "X", "Y", "Z"])
+        DataGridViewComboBoxColumn id = new()
+        {
+            HeaderText = "ID",
+            Width = 150,
+            FlatStyle = FlatStyle.Flat,
+            DisplayStyle = DataGridViewComboBoxDisplayStyle.Nothing,
+        };
+        foreach (var name in ObjectNames)
+            id.Items.Add(name);
+        DGV_Objects.Columns.Add(id);
+
+        foreach (var header in (ReadOnlySpan<string>)["X", "Y", "Z"])
         {
             DGV_Objects.Columns.Add(new DataGridViewTextBoxColumn
             {
@@ -186,7 +239,7 @@ public partial class SAV_Safari4 : Form
         {
             var obj = block.GetObject(i);
             var cells = DGV_Objects.Rows[i].Cells;
-            cells[0].Value = obj.ID.ToString();
+            cells[0].Value = GetObjectName(obj.ID);
             cells[1].Value = obj.X.ToString();
             cells[2].Value = obj.Y.ToString();
             cells[3].Value = obj.Z.ToString();
@@ -240,7 +293,7 @@ public partial class SAV_Safari4 : Form
                 continue;
 
             var obj = block.GetObject(written);
-            obj.ID = ParseByte(cells[0].Value);
+            obj.ID = ParseObjectID(cells[0].Value);
             obj.X = ParseByte(cells[1].Value);
             obj.Y = ParseByte(cells[2].Value);
             obj.Z = ParseByte(cells[3].Value);
@@ -335,7 +388,8 @@ public partial class SAV_Safari4 : Form
 
         var index = DGV_Objects.Rows.Add();
         var cells = DGV_Objects.Rows[index].Cells;
-        for (int i = 0; i < cells.Count; i++)
+        cells[0].Value = ObjectNames[1]; // default to a real object, not "None"
+        for (int i = 1; i < cells.Count; i++)
             cells[i].Value = "0";
     }
 

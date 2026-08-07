@@ -92,7 +92,7 @@ namespace PKHeX.WinForms
             TC_Main.Location = new System.Drawing.Point(14, 42);
             TC_Main.Name = "TC_Main";
             TC_Main.SelectedIndex = 0;
-            TC_Main.Size = new System.Drawing.Size(462, 300);
+            TC_Main.Size = new System.Drawing.Size(578, 300);
             TC_Main.TabIndex = 2;
             // 
             // Tab_Layout
@@ -102,7 +102,7 @@ namespace PKHeX.WinForms
             Tab_Layout.Location = new System.Drawing.Point(4, 24);
             Tab_Layout.Name = "Tab_Layout";
             Tab_Layout.Padding = new System.Windows.Forms.Padding(3);
-            Tab_Layout.Size = new System.Drawing.Size(454, 272);
+            Tab_Layout.Size = new System.Drawing.Size(570, 272);
             Tab_Layout.TabIndex = 0;
             Tab_Layout.Text = "Layout";
             Tab_Layout.UseVisualStyleBackColor = true;
@@ -133,7 +133,7 @@ namespace PKHeX.WinForms
             GB_Objects.Controls.Add(B_ObjectRemove);
             GB_Objects.Location = new System.Drawing.Point(252, 6);
             GB_Objects.Name = "GB_Objects";
-            GB_Objects.Size = new System.Drawing.Size(196, 258);
+            GB_Objects.Size = new System.Drawing.Size(312, 258);
             GB_Objects.TabIndex = 1;
             GB_Objects.TabStop = false;
             GB_Objects.Text = "Objects";
@@ -153,7 +153,7 @@ namespace PKHeX.WinForms
             DGV_Objects.RowHeadersVisible = false;
             DGV_Objects.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.CellSelect;
             DGV_Objects.ShowEditingIcon = false;
-            DGV_Objects.Size = new System.Drawing.Size(184, 196);
+            DGV_Objects.Size = new System.Drawing.Size(300, 196);
             DGV_Objects.TabIndex = 0;
             // 
             // B_ObjectAdd
@@ -192,7 +192,7 @@ namespace PKHeX.WinForms
             Tab_Growth.Location = new System.Drawing.Point(4, 24);
             Tab_Growth.Name = "Tab_Growth";
             Tab_Growth.Padding = new System.Windows.Forms.Padding(3);
-            Tab_Growth.Size = new System.Drawing.Size(454, 272);
+            Tab_Growth.Size = new System.Drawing.Size(570, 272);
             Tab_Growth.TabIndex = 1;
             Tab_Growth.Text = "Growth";
             Tab_Growth.UseVisualStyleBackColor = true;
@@ -318,7 +318,7 @@ namespace PKHeX.WinForms
             Tab_Friend.Location = new System.Drawing.Point(4, 24);
             Tab_Friend.Name = "Tab_Friend";
             Tab_Friend.Padding = new System.Windows.Forms.Padding(3);
-            Tab_Friend.Size = new System.Drawing.Size(454, 272);
+            Tab_Friend.Size = new System.Drawing.Size(570, 272);
             Tab_Friend.TabIndex = 2;
             Tab_Friend.Text = "Friend";
             Tab_Friend.UseVisualStyleBackColor = true;
@@ -405,7 +405,7 @@ namespace PKHeX.WinForms
             // 
             // B_Save
             // 
-            B_Save.Location = new System.Drawing.Point(363, 350);
+            B_Save.Location = new System.Drawing.Point(479, 350);
             B_Save.Name = "B_Save";
             B_Save.Size = new System.Drawing.Size(113, 27);
             B_Save.TabIndex = 3;
@@ -415,7 +415,7 @@ namespace PKHeX.WinForms
             // 
             // B_Cancel
             // 
-            B_Cancel.Location = new System.Drawing.Point(243, 350);
+            B_Cancel.Location = new System.Drawing.Point(359, 350);
             B_Cancel.Name = "B_Cancel";
             B_Cancel.Size = new System.Drawing.Size(113, 27);
             B_Cancel.TabIndex = 4;
@@ -426,7 +426,7 @@ namespace PKHeX.WinForms
             // SAV_Safari4
             // 
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
-            ClientSize = new System.Drawing.Size(490, 390);
+            ClientSize = new System.Drawing.Size(606, 390);
             Controls.Add(B_Cancel);
             Controls.Add(B_Save);
             Controls.Add(TC_Main);
