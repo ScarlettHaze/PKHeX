@@ -1,5 +1,7 @@
 using System;
+using System.Buffers;
 using System.Drawing;
+using System.Threading;
 using System.Timers;
 using System.Windows.Forms;
 using PKHeX.Drawing;
@@ -7,20 +9,19 @@ using Timer = System.Timers.Timer;
 
 namespace PKHeX.WinForms.Controls;
 
-public sealed class BitmapAnimator : Timer
+public sealed class BitmapAnimator : IDisposable
 {
-    public BitmapAnimator()
-    {
-        Elapsed += TimerElapsed;
-    }
+    public BitmapAnimator() => Timer.Elapsed += TimerElapsed;
+
+    private readonly Timer Timer = new();
 
     private int imgWidth;
     private int imgHeight;
-    private byte[]? GlowData;
+    private ReadOnlyMemory<byte> GlowData;
     private Image? ExtraLayer;
-    private Image?[]? GlowCache;
-    public Image? OriginalBackground;
-    private readonly object Lock = new();
+    private Bitmap?[]? GlowCache;
+    private Bitmap? OriginalBackground;
+    private readonly Lock Lock = new();
 
     private PictureBox? pb;
     private int GlowInterval;
@@ -29,12 +30,11 @@ public sealed class BitmapAnimator : Timer
     public int GlowFps { get; set; } = 60;
     public Color GlowToColor { get; set; } = Color.LightSkyBlue;
     public Color GlowFromColor { get; set; } = Color.White;
+    public bool Enabled { get => Timer.Enabled; set => Timer.Enabled = value; }
 
-    public new static void Start() => throw new ArgumentException();
-
-    public new void Stop()
+    public void Stop()
     {
-        if (pb == null || !Enabled)
+        if (pb is null || !Enabled)
             return;
 
         lock (Lock)
@@ -44,23 +44,22 @@ public sealed class BitmapAnimator : Timer
         }
 
         // reset logic
-        if (GlowCache == null)
-            throw new ArgumentNullException(nameof(GlowCache));
+        ArgumentNullException.ThrowIfNull(GlowCache);
         GlowCounter = 0;
         for (int i = 0; i < GlowCache.Length; i++)
             GlowCache[i] = null;
     }
 
-    public void Start(PictureBox pbox, Image baseImage, byte[] glowData, Image original, Image extra)
+    public void Start(PictureBox pbox, Image baseImage, ReadOnlyMemory<byte> glowData, Bitmap? original, Image extra)
     {
         Enabled = false;
         imgWidth = baseImage.Width;
         imgHeight = baseImage.Height;
         GlowData = glowData;
         GlowCounter = 0;
-        GlowCache = new Image[GlowFps];
+        GlowCache = new Bitmap[GlowFps];
         GlowInterval = 1000 / GlowFps;
-        Interval = GlowInterval;
+        Timer.Interval = GlowInterval;
         lock (Lock)
         {
             pb = pbox;
@@ -82,7 +81,7 @@ public sealed class BitmapAnimator : Timer
             if (!Enabled)
                 return;
 
-            if (pb == null)
+            if (pb is null)
                 return;
             try { pb.BackgroundImage = GetFrame(frameIndex); } // drawing GDI can be silly sometimes #2072
             catch (AccessViolationException ex) { System.Diagnostics.Debug.WriteLine(ex.Message); }
@@ -92,27 +91,38 @@ public sealed class BitmapAnimator : Timer
     private Image GetFrame(int frameIndex)
     {
         var cache = GlowCache;
-        if (cache == null)
-            throw new NullReferenceException(nameof(GlowCache));
+        ArgumentNullException.ThrowIfNull(cache);
         var frame = cache[frameIndex];
-        if (frame != null)
+        if (frame is not null)
             return frame;
 
         var elapsedFraction = (double)frameIndex / GlowInterval;
         var frameColor = GetFrameColor(elapsedFraction);
 
-        if (GlowData == null)
-            throw new NullReferenceException(nameof(GlowData));
-        var frameData = (byte[])GlowData.Clone();
-        ImageUtil.ChangeAllColorTo(frameData, frameColor);
+        ArgumentOutOfRangeException.ThrowIfEqual(GlowData.Length, 0);
 
-        frame = ImageUtil.GetBitmap(frameData, imgWidth, imgHeight);
-        if (ExtraLayer != null)
+        var frameData = ArrayPool<byte>.Shared.Rent(GlowData.Length);
+        var frameSpan = frameData.AsSpan(0, GlowData.Length);
+        GlowData.Span.CopyTo(frameSpan);
+        ImageUtil.ChangeAllColorTo(frameSpan, frameColor);
+        frame = ImageUtil.GetBitmap(frameSpan, imgWidth, imgHeight);
+        frameSpan.Clear();
+        ArrayPool<byte>.Shared.Return(frameData);
+
+        if (ExtraLayer is not null)
             frame = ImageUtil.LayerImage(frame, ExtraLayer, 0, 0);
-        if (OriginalBackground != null)
+        if (OriginalBackground is not null)
             frame = ImageUtil.LayerImage(OriginalBackground, frame, 0, 0);
         return cache[frameIndex] = frame;
     }
 
     private Color GetFrameColor(double elapsedFraction) => ColorUtil.Blend(GlowToColor, GlowFromColor, elapsedFraction);
+
+    public void Dispose()
+    {
+        GlowCache = null;
+        Timer.Enabled = false;
+        Timer.Elapsed -= TimerElapsed;
+        Timer.Dispose();
+    }
 }

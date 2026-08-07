@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace PKHeX.Core;
 
@@ -8,23 +8,23 @@ namespace PKHeX.Core;
 public sealed class LegalInfo : IGeneration
 {
     /// <summary>The <see cref="PKM"/> object used for comparisons.</summary>
-    private readonly PKM Entity;
+    public readonly PKM Entity;
 
-    /// <summary>The generation of games the <see cref="PKM"/> originated from.</summary>
-    public int Generation { get; private set; }
+    /// <summary>The generation of games the <see cref="Entity"/> originated from.</summary>
+    public byte Generation { get; private set; }
 
-    /// <summary>The matched Encounter details for the <see cref="PKM"/>. </summary>
+    /// <summary>The matched Encounter details for the <see cref="Entity"/>. </summary>
     public IEncounterable EncounterMatch
     {
-        get => _match;
+        get;
         set
         {
-            if (!ReferenceEquals(_match, EncounterInvalid.Default) && (value.LevelMin != _match.LevelMin || value.Species != _match.Species))
+            if (!ReferenceEquals(field, EncounterInvalid.Default) && (value.LevelMin != field.LevelMin || value.Species != field.Species))
                 _evochains = null; // clear if evo chain has the potential to be different
-            _match = value;
+            field = value;
             Parse.Clear();
         }
-    }
+    } = EncounterInvalid.Default;
 
     /// <summary>
     /// Original encounter data for the <see cref="Entity"/>.
@@ -36,29 +36,18 @@ public sealed class LegalInfo : IGeneration
     public IEncounterable EncounterOriginal => EncounterOriginalGB ?? EncounterMatch;
 
     internal IEncounterable? EncounterOriginalGB;
-    private IEncounterable _match = EncounterInvalid.Default;
 
     /// <summary>Top level Legality Check result list for the <see cref="EncounterMatch"/>.</summary>
     internal readonly List<CheckResult> Parse;
 
     private const int MoveCount = 4;
-    public readonly CheckMoveResult[] Relearn = GetArray();
-    public readonly CheckMoveResult[] Moves = GetArray();
+    public readonly MoveResult[] Relearn = new MoveResult[MoveCount];
+    public readonly MoveResult[] Moves = new MoveResult[MoveCount];
 
-    private static CheckMoveResult[] GetArray()
-    {
-        var result = new CheckMoveResult[MoveCount];
-        for (int i = 0; i < result.Length; i++)
-            result[i] = new CheckMoveResult();
-        return result;
-    }
-
-    private static readonly ValidEncounterMoves NONE = new();
-    public ValidEncounterMoves EncounterMoves { get; internal set; } = NONE;
     public EvolutionHistory EvoChainsAllGens => _evochains ??= EvolutionChain.GetEvolutionChainsAllGens(Entity, EncounterMatch);
     private EvolutionHistory? _evochains;
 
-    /// <summary><see cref="RNG"/> related information that generated the <see cref="PKM.PID"/>/<see cref="PKM.IVs"/> value(s).</summary>
+    /// <summary>RNG related information that generated the <see cref="PKM.PID"/>/<see cref="PKM.IVs"/> value(s).</summary>
     public PIDIV PIDIV
     {
         get => _pidiv;
@@ -70,15 +59,12 @@ public sealed class LegalInfo : IGeneration
     }
 
     public bool PIDParsed { get; private set; }
-    private PIDIV _pidiv = PIDIV.None;
+    private PIDIV _pidiv;
+    internal ref PIDIV GetPIDIVRef() => ref _pidiv;
 
-    /// <summary>Indicates whether or not the <see cref="PIDIV"/> can originate from the <see cref="EncounterMatch"/>.</summary>
-    /// <remarks>This boolean is true until all valid <see cref="PIDIV"/> encounters are tested, after which it is false.</remarks>
-    public bool PIDIVMatches { get; internal set; } = true;
-
-    /// <summary>Indicates whether or not the <see cref="PIDIV"/> can originate from the <see cref="EncounterMatch"/> with explicit <see cref="RNG"/> <see cref="Frame"/> matching.</summary>
-    /// <remarks>This boolean is true until all valid <see cref="Frame"/> entries are tested for all possible <see cref="EncounterSlot"/> matches, after which it is false.</remarks>
-    public bool FrameMatches { get; internal set; } = true;
+    public EncounterYieldFlag ManualFlag { get; internal set; }
+    public bool FrameMatches => ManualFlag != EncounterYieldFlag.InvalidFrame;
+    public bool PIDIVMatches => ManualFlag != EncounterYieldFlag.InvalidPIDIV;
 
     public LegalInfo(PKM pk, List<CheckResult> parse)
     {
@@ -87,10 +73,21 @@ public sealed class LegalInfo : IGeneration
         StoreMetadata(pk.Generation);
     }
 
-    internal void StoreMetadata(int gen)
+    /// <summary>
+    /// We can call this method at the start for any Gen3+ encounter iteration.
+    /// Additionally, We need to call this for each Gen1/2 encounter as Version is not stored for those origins.
+    /// </summary>
+    /// <param name="generation">Encounter generation</param>
+    internal void StoreMetadata(byte generation) => Generation = generation switch
     {
-        // We can call this method at the start for any Gen3+ encounter iteration.
-        // We need to call this for each Gen1/2 encounter as Version is not stored for those origins.
-        Generation = gen;
-    }
+        0 when Entity is PK9 { IsUnhatchedEgg: true } => 9,
+        _ => generation,
+    };
+}
+
+public enum EncounterYieldFlag : byte
+{
+    None = 0,
+    InvalidPIDIV,
+    InvalidFrame,
 }

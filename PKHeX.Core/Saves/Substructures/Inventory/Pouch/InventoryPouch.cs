@@ -13,9 +13,7 @@ public abstract class InventoryPouch
     public readonly InventoryType Type;
 
     /// <summary> Valid item IDs that may be stored in the pouch. </summary>
-    public readonly ushort[] LegalItems;
-
-    public readonly Func<ushort, bool>? IsItemLegal;
+    protected readonly IItemStorage Info;
 
     /// <summary> Max quantity for a given item that can be stored in the pouch. </summary>
     public readonly int MaxCount;
@@ -24,24 +22,22 @@ public abstract class InventoryPouch
     public int Count => Items.Count(it => it.Count > 0);
 
     /// <summary> Checks if the player may run out of bag space when there are too many unique items to fit into the pouch. </summary>
-    public bool IsCramped => LegalItems.Length > Items.Length;
+    public bool IsCramped => Info.GetItems(Type).Length > Items.Length;
 
-    public InventoryItem[] Items;
+    public abstract InventoryItem[] Items { get; }
 
     /// <summary> Offset the items were read from. </summary>
     protected readonly int Offset;
     /// <summary> Size of the backing byte array that represents the pouch. </summary>
     protected readonly int PouchDataSize;
 
-    protected InventoryPouch(InventoryType type, ushort[] legal, int maxCount, int offset, int size = -1, Func<ushort, bool>? isLegal = null)
+    protected InventoryPouch(InventoryType type, IItemStorage storage, int maxCount, int offset, int size = -1)
     {
-        Items = Array.Empty<InventoryItem>();
         Type = type;
-        LegalItems = legal;
+        Info = storage;
         MaxCount = maxCount;
         Offset = offset;
-        PouchDataSize = size > -1 ? size : legal.Length;
-        IsItemLegal = isLegal;
+        PouchDataSize = size > -1 ? size : storage.GetItems(Type).Length;
     }
 
     /// <summary> Reads the pouch from the backing <see cref="data"/>. </summary>
@@ -58,7 +54,7 @@ public abstract class InventoryPouch
     public void SortByEmpty() => Array.Sort(Items, (x, y) => (x.Count == 0).CompareTo(y.Count == 0));
     public void SortBy<TItem, TCompare>(Func<TItem, TCompare> selector) where TItem : InventoryItem where TCompare : IComparable => Array.Sort(Items, (x, y) => selector((TItem)x).CompareTo(selector((TItem)y)));
 
-    private static int Compare<TCompare>(int i1, int i2, IReadOnlyList<TCompare> n, bool rev) where TCompare : IComparable
+    private static int Compare<TCompare>(int i1, int i2, IReadOnlyList<TCompare> n, bool rev) where TCompare : class, IComparable
     {
         if (i1 == 0 || i1 >= n.Count)
             return 1;
@@ -88,13 +84,21 @@ public abstract class InventoryPouch
     public void Sanitize(int maxItemID, bool HaX = false)
     {
         int ctr = 0;
-        for (int i = 0; i < Items.Length; i++)
+        var arr = Items;
+        for (int i = 0; i < arr.Length; i++)
         {
-            if (Items[i].IsValid(LegalItems, maxItemID, HaX))
-                Items[ctr++] = Items[i];
+            var item = arr[i];
+            if (item.Index != 0)
+            {
+                if ((uint)item.Index > maxItemID)
+                    continue;
+                //if (!HaX && !Info.IsLegal(Type, item.Index, item.Count))
+                //    continue;
+            }
+            arr[ctr++] = arr[i]; // absorb down
         }
-        while (ctr < Items.Length)
-            Items[ctr++].Clear();
+        while (ctr < arr.Length)
+            arr[ctr++] = GetEmpty();
     }
 
     /// <summary>
@@ -167,119 +171,97 @@ public abstract class InventoryPouch
             item.Count = value;
     }
 
-    public void ModifyAllCount(SaveFile sav, int count = -1)
+    /// <summary>
+    /// Changes all the item quantities of present items to the specified <see cref="count"/>, using pouch rules.
+    /// </summary>
+    public void ModifyAllCount(PlayerBag bag, int count = -1)
+    {
+        foreach (var item in Items.Where(z => z.Index != 0))
+            item.Count = bag.Clamp(Type, item.Index, count);
+    }
+
+    public void GiveAllItems(PlayerBag bag, ReadOnlySpan<ushort> newItems, int count = -1)
+    {
+        foreach (var item in Items)
+            item.Clear();
+
+        foreach (var item in newItems)
+        {
+            if (bag.IsLegal(Type, item, count))
+                GiveItem(bag, item, count);
+        }
+    }
+
+    public void GiveAllItems(PlayerBag bag, int count = -1)
+    {
+        var items = Info.GetItems(Type);
+        foreach (var item in items)
+            GiveItem(bag, item, count);
+
+        foreach (var item in Items)
+        {
+            if (item.Count != 0)
+                bag.Clamp(Type, item.Index, count);
+        }
+    }
+
+    public int GiveItem(PlayerBag bag, ushort itemID, int count = -1)
     {
         if (count <= 0)
-            count = 1;
-        foreach (var item in Items.Where(z => z.Index != 0))
-            item.Count = GetSuggestedItemCount(sav, item.Index, count);
+            count = bag.GetMaxCount(Type, itemID);
+
+        var existIndex = FindIndexFirstMatchingSlot(itemID);
+        if (existIndex >= 0)
+            return AddCountTo(bag, Items[existIndex], count);
+
+        var emptyIndex = FindIndexFirstEmptySlot();
+        if (emptyIndex < 0)
+            return -1;
+
+        var newItem = Items[emptyIndex];
+        newItem.Index = itemID;
+        newItem.SetNewDetails(0);
+        return AddCountTo(bag, newItem, count);
     }
 
-    public void ModifyAllCount(Func<InventoryItem, int> modification)
+    private int AddCountTo(PlayerBag bag, InventoryItem exist, int count)
     {
-        foreach (var item in Items.Where(z => z.Index != 0))
-            item.Count = modification(item);
+        var existCount = exist.Count;
+        var newCount = existCount + count;
+
+        // Sanitize the value
+        newCount = bag.Clamp(Type, exist.Index, newCount);
+        return exist.Count = newCount;
     }
 
-    public void GiveAllItems(ReadOnlySpan<ushort> newItems, Func<InventoryItem, int> getSuggestedItemCount, int count = -1)
+    public int FindIndexFirstEmptySlot() => FindIndexFirstMatchingSlot(0);
+
+    private int FindIndexFirstMatchingSlot(ushort itemID)
     {
-        GiveAllItems(newItems, count);
-        ModifyAllCount(getSuggestedItemCount);
-    }
-
-    public void GiveAllItems(SaveFile sav, ReadOnlySpan<ushort> items, int count = -1)
-    {
-        GiveAllItems(items, count);
-        ModifyAllCount(item => GetSuggestedItemCount(sav, item.Index, count));
-    }
-
-    public void GiveAllItems(SaveFile sav, int count = -1) => GiveAllItems(sav, LegalItems, count);
-
-    private void GiveAllItems(ReadOnlySpan<ushort> newItems, int count = -1)
-    {
-        if (count < 0)
-            count = MaxCount;
-
-        var current = (InventoryItem[]) Items.Clone();
-        var itemEnd = Math.Min(Items.Length, newItems.Length);
-        var iterate = newItems[..itemEnd];
-
-        int ctr = 0;
-        foreach (var newItemID in iterate)
+        for (int i = 0; i < Items.Length; i++)
         {
-            if (IsItemLegal?.Invoke(newItemID) == false)
-                continue;
-
-            var item = Items[ctr++] = GetEmpty(newItemID);
-            var match = Array.Find(current, z => z.Index == newItemID);
-            if (match == null)
-            {
-                item.SetNewDetails(count);
-                continue;
-            }
-
-            // load old values
-            item.MergeOverwrite(match);
+            if (Items[i].Index == itemID)
+                return i;
         }
-
-        for (int i = ctr; i < Items.Length; i++)
-            Items[i] = GetEmpty();
-    }
-
-    public bool IsValidItemAndCount(ITrainerInfo sav, int item, bool HasNew, bool HaX, ref int count)
-    {
-        if (HaX && sav.Generation != 7) // Gen7 has true cap at 1023, keep 999 cap.
-        {
-            count = sav.Generation switch
-            {
-                // Cap at absolute maximum
-                <= 2 when count > byte.MaxValue => byte.MaxValue,
-                >= 3 when count > ushort.MaxValue => ushort.MaxValue,
-                _ => count,
-            };
-            return true;
-        }
-
-        if (count > MaxCount)
-        {
-            if (item == 797 && count >= 2) // Edge case when for some reason the item count for Z-Ring was 2 in an unedited save and set 1 after using PKHeX
-                count = 2;
-            else
-                count = MaxCount; // Cap at pouch maximum
-        }
-        else if (count <= 0 && !HasNew)
-        {
-            return false;
-        }
-
-        count = GetSuggestedItemCount(sav, item, count);
-        return true;
-    }
-
-    private int GetSuggestedItemCount(ITrainerInfo sav, int item, int requestVal = 1)
-    {
-        if (sav is SAV7b) // mixed pouch count caps
-            return InventoryPouch7b.GetSuggestedCount(Type, item, requestVal);
-        if (sav is SAV8SWSH)
-            return InventoryPouch8.GetSuggestedCount(Type, item, requestVal);
-        if (sav is not SAV8BS && ItemConverter.IsItemHM((ushort)item, sav.Generation))
-            return 1;
-        return Math.Min(MaxCount, requestVal);
+        return -1;
     }
 
     public abstract InventoryItem GetEmpty(int itemID = 0, int count = 0);
+
+    public ReadOnlySpan<ushort> GetAllItems() => Info.GetItems(Type);
+    public bool CanContain(ushort itemID) => Info.GetItems(Type).Contains(itemID);
+    public bool HasItem(ushort itemID) => Items.Any(it => it.Index == itemID && it.Count > 0);
 }
 
 public static class InventoryPouchExtensions
 {
-    public static IReadOnlyList<InventoryPouch> LoadAll(this IReadOnlyList<InventoryPouch> value, byte[] data)
+    public static void LoadAll<T>(this IReadOnlyList<T> value, ReadOnlySpan<byte> data) where T : InventoryPouch
     {
         foreach (var p in value)
             p.GetPouch(data);
-        return value;
     }
 
-    public static void SaveAll(this IReadOnlyList<InventoryPouch> value, byte[] data)
+    public static void SaveAll(this IReadOnlyList<InventoryPouch> value, Span<byte> data)
     {
         foreach (var p in value)
             p.SetPouch(data);

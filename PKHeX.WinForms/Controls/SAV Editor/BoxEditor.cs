@@ -1,8 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
 using PKHeX.Core;
+using PKHeX.Core.Searching;
 using PKHeX.Drawing.Misc;
 using PKHeX.Drawing.PokeSprite;
 using static PKHeX.Core.MessageStrings;
@@ -11,9 +13,9 @@ namespace PKHeX.WinForms.Controls;
 
 public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
 {
-    public IList<PictureBox> SlotPictureBoxes { get; private set; } = Array.Empty<PictureBox>();
+    private bool _gridInitialized;
+    public IList<PictureBox> SlotPictureBoxes { get; private set; } = [];
     public SaveFile SAV => M?.SE.SAV ?? throw new ArgumentNullException(nameof(SAV));
-
     public int BoxSlotCount { get; private set; }
     public SlotChangeManager? M { get; set; }
     public bool FlagIllegal { get; set; }
@@ -24,6 +26,10 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
     public BoxEditor()
     {
         InitializeComponent();
+        SizeChanged += BoxEditor_SizeChanged;
+        ParentChanged += BoxEditor_ParentChanged;
+        DpiChangedAfterParent += BoxEditor_DpiChangedAfterParent;
+        HandleCreated += BoxEditor_HandleCreated;
     }
 
     internal bool InitializeGrid()
@@ -33,9 +39,38 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
         var height = count / width;
         if (!BoxPokeGrid.InitializeGrid(width, height, SpriteUtil.Spriter))
             return false;
+        _gridInitialized = true;
         RecenterControls();
         InitializeSlots();
         return true;
+    }
+
+    private void BoxEditor_SizeChanged(object? sender, EventArgs e)
+    {
+        if (!_gridInitialized)
+            return;
+        RecenterControls();
+    }
+
+    private void BoxEditor_ParentChanged(object? sender, EventArgs e)
+    {
+        if (!_gridInitialized)
+            return;
+        RecenterControls();
+    }
+
+    private void BoxEditor_DpiChangedAfterParent(object? sender, EventArgs e)
+    {
+        if (!_gridInitialized)
+            return;
+        RecenterControls();
+    }
+
+    private void BoxEditor_HandleCreated(object? sender, EventArgs e)
+    {
+        if (!_gridInitialized)
+            return;
+        RecenterControls();
     }
 
     public void RecenterControls()
@@ -51,8 +86,8 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
         if (delta == 0)
             return;
 
-        B_BoxLeft.SetBounds(B_BoxLeft.Location.X + delta, 0, 0, 0, BoundsSpecified.X);
-        B_BoxRight.SetBounds(B_BoxRight.Location.X + delta, 0, 0, 0, BoundsSpecified.X);
+        B_BoxLeft.Left += delta;
+        B_BoxRight.Left += delta;
     }
 
     private void InitializeSlots()
@@ -61,8 +96,8 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
         BoxSlotCount = SlotPictureBoxes.Count;
         foreach (var pb in SlotPictureBoxes)
         {
-            pb.MouseEnter += (o, args) => BoxSlot_MouseEnter(pb, args);
-            pb.MouseLeave += (o, args) => BoxSlot_MouseLeave(pb, args);
+            pb.MouseEnter += (_, args) => BoxSlot_MouseEnter(pb, args);
+            pb.MouseLeave += (_, args) => BoxSlot_MouseLeave(pb, args);
             pb.MouseClick += BoxSlot_MouseClick;
             pb.MouseMove += BoxSlot_MouseMove;
             pb.MouseDown += BoxSlot_MouseDown;
@@ -71,7 +106,7 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
             pb.DragEnter += BoxSlot_DragEnter;
             pb.DragDrop += BoxSlot_DragDrop;
             pb.QueryContinueDrag += BoxSlot_QueryContinueDrag;
-            pb.GiveFeedback += (sender, e) => e.UseDefaultCursors = false;
+            pb.GiveFeedback += (_, e) => e.UseDefaultCursors = false;
             pb.AllowDrop = true;
         }
     }
@@ -92,7 +127,27 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
             return;
 
         var pb = SlotPictureBoxes[index];
-        SlotUtil.UpdateSlot(pb, slot, pk, SAV, FlagIllegal, type);
+        var flags = GetFlags(pk);
+        SlotUtil.UpdateSlot(pb, slot, pk, SAV, flags, type);
+    }
+
+    public void ApplyNewFilter(Func<PKM, bool>? filter, bool reload = true)
+    {
+        if (filter == _searchFilter)
+            return;
+        _searchFilter = filter;
+        if (reload && SAV.HasBox)
+            ResetSlots();
+    }
+
+    private SlotVisibilityType GetFlags(PKM pk)
+    {
+        var result = SlotVisibilityType.None;
+        if (FlagIllegal)
+            result |= SlotVisibilityType.CheckLegalityIndicate;
+        if (_searchFilter != null && !_searchFilter(pk))
+            result |= SlotVisibilityType.FilterMismatch;
+        return result;
     }
 
     public int GetViewIndex(ISlotInfo slot)
@@ -105,7 +160,7 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
     public ISlotInfo GetSlotData(PictureBox view)
     {
         int slot = GetSlot(view);
-        return new SlotInfoBox(ViewIndex, slot);
+        return new SlotInfoBox(ViewIndex, slot, SAV);
     }
 
     private int GetSlot(PictureBox sender) => SlotPictureBoxes.IndexOf(sender);
@@ -144,18 +199,51 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
         FlagIllegal = M.SE.FlagIllegal;
     }
 
+    /// <summary>
+    /// Updates the list of Box Names to select from, and selects the box index specified. If no box is specified, the previous index is used.
+    /// </summary>
+    /// <param name="box">Box to display after reload.</param>
     public void ResetBoxNames(int box = -1)
     {
         if (!SAV.HasBox)
             return;
 
-        CB_BoxSelect.Items.Clear();
-        CB_BoxSelect.Items.AddRange(BoxUtil.GetBoxNames(SAV));
+        var currentIndex = CurrentBox;
+        if (box < 0)
+            box = currentIndex;
 
-        if (box < 0 && (uint)SAV.CurrentBox < CB_BoxSelect.Items.Count)
-            CurrentBox = SAV.CurrentBox; // restore selected box
-        else
+        var update = BoxUtil.GetBoxNames(SAV);
+        var current = CB_BoxSelect.Items;
+        if (!GetIsSame(update, current))
+        {
+            // try to keep list elements if same length
+            if (update.Length == current.Count)
+            {
+                for (int i = 0; i < update.Length; i++)
+                    current[i] = update[i];
+            }
+            else // rebuild completely
+            {
+                current.Clear();
+                current.AddRange(update);
+            }
+        }
+
+        box = Math.Clamp(box, 0, current.Count - 1);
+        if (box != CurrentBox)
             CurrentBox = box;
+    }
+
+    private static bool GetIsSame(ReadOnlySpan<string> a, IList b)
+    {
+        if (a.Length != b.Count)
+            return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (b[i] is not string s || s != a[i])
+                return false;
+        }
+        return true;
     }
 
     public void ResetSlots()
@@ -175,7 +263,9 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
                 continue;
             }
             pb.Visible = true;
-            SlotUtil.UpdateSlot(pb, (SlotInfoBox) GetSlotData(pb), Editor[i], SAV, FlagIllegal);
+            var pk = Editor[i];
+            var flags = GetFlags(pk);
+            SlotUtil.UpdateSlot(pb, (SlotInfoBox)GetSlotData(pb), pk, SAV, flags);
         }
 
         if (M?.Env.Slots.Publisher.Previous is SlotInfoBox b && b.Box == CurrentBox)
@@ -191,7 +281,9 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
 
         if (dr == DialogResult.Yes)
         {
-            using var sfd = new SaveFileDialog { Filter = "Box Data|*.bin", FileName = "pcdata.bin" };
+            using var sfd = new SaveFileDialog();
+            sfd.Filter = "Box Data|*.bin";
+            sfd.FileName = "pcdata.bin";
             if (sfd.ShowDialog() != DialogResult.OK)
                 return false;
             File.WriteAllBytes(sfd.FileName, SAV.GetPCBinary());
@@ -199,7 +291,9 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
         }
         if (dr == DialogResult.No)
         {
-            using var sfd = new SaveFileDialog { Filter = "Box Data|*.bin", FileName = $"boxdata {CurrentBoxName}.bin" };
+            using var sfd = new SaveFileDialog();
+            sfd.Filter = "Box Data|*.bin";
+            sfd.FileName = $"boxdata {CurrentBoxName}.bin";
             if (sfd.ShowDialog() != DialogResult.OK)
                 return false;
             File.WriteAllBytes(sfd.FileName, SAV.GetBoxBinary(CurrentBox));
@@ -252,8 +346,40 @@ public partial class BoxEditor : UserControl, ISlotViewer<PictureBox>
         int box = sav.CurrentBox;
         if ((uint)box >= sav.BoxCount)
             box = 0;
+
+        // Display the Box Names
+        ResetBoxNames(box);
         Editor.LoadBox(box);
-        ResetBoxNames();   // Display the Box Names
         return result;
+    }
+
+    private Func<PKM, bool>? _searchFilter;
+
+    public void ApplySearchFilter(Func<PKM, bool>? searchFilter, bool reload = true)
+    {
+        _searchFilter = searchFilter;
+        _lastSearchResult = null;
+        if (!reload)
+            return;
+        ResetSlots();
+    }
+
+    private (int Box, int Slot)? _lastSearchResult;
+
+    public void SeekNext(Func<PKM, bool> searchFilter, bool reverse = false)
+    {
+        // Search from next box, wrapping around
+        var (box, slot) = _lastSearchResult ?? (CurrentBox, -1);
+        if (!SearchUtil.TrySeekNext(SAV, searchFilter, out var result, box, slot, reverse))
+        {
+            // Not found
+            WinFormsUtil.Exclamation();
+            return;
+        }
+        CurrentBox = result.Box;
+        BoxPokeGrid.Entries[result.Slot].Focus();
+        _lastSearchResult = result;
+
+        WinFormsUtil.Asterisk();
     }
 }

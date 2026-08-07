@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -12,11 +12,11 @@ public partial class SAV_Pokedex4 : Form
     private readonly SaveFile Origin;
     private readonly SAV4 SAV;
 
-    public SAV_Pokedex4(SaveFile sav)
+    public SAV_Pokedex4(SAV4 sav)
     {
         InitializeComponent();
         WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
-        CL = new[] { CHK_L1, CHK_L2, CHK_L3, CHK_L5, CHK_L4, CHK_L6 }; // JPN,ENG,FRA,GER,ITA,SPA
+        CL = [CHK_L1, CHK_L2, CHK_L3, CHK_L5, CHK_L4, CHK_L6]; // JPN,ENG,FRA,GER,ITA,SPA
         SAV = (SAV4)(Origin = sav).Clone();
 
         editing = true;
@@ -27,7 +27,7 @@ public partial class SAV_Pokedex4 : Form
         // Fill List
         CB_Species.InitializeBinding();
         var filtered = GameInfo.FilteredSources;
-        CB_Species.DataSource = new BindingSource(filtered.Species.Skip(1).ToList(), null);
+        CB_Species.DataSource = new BindingSource(filtered.Species.Skip(1).ToList(), string.Empty);
 
         for (int i = 1; i < SAV.MaxSpeciesID + 1; i++)
             LB_Species.Items.Add($"{i:000} - {GameInfo.Strings.specieslist[i]}");
@@ -35,19 +35,17 @@ public partial class SAV_Pokedex4 : Form
         editing = false;
         LB_Species.SelectedIndex = 0;
 
-        string[] dexMode = { "not given", "simple mode", "detect forms", "national dex", "other languages" };
+        string[] dexMode = ["not given", "simple mode", "detect forms", "national dex", "other languages"];
         if (SAV is SAV4HGSS) dexMode = dexMode.Where((_, i) => i != 2).ToArray();
         foreach (string mode in dexMode)
             CB_DexUpgraded.Items.Add(mode);
         if (SAV.DexUpgraded < CB_DexUpgraded.Items.Count)
             CB_DexUpgraded.SelectedIndex = SAV.DexUpgraded;
-
-        CB_Species.KeyDown += WinFormsUtil.RemoveDropCB;
     }
 
     private readonly CheckBox[] CL;
     private bool editing;
-    private int species = -1;
+    private ushort species = ushort.MaxValue;
     private const int LangCount = 6; // No Korean
 
     private void ChangeCBSpecies(object sender, EventArgs e)
@@ -57,7 +55,7 @@ public partial class SAV_Pokedex4 : Form
         SetEntry();
 
         editing = true;
-        species = (int)CB_Species.SelectedValue;
+        species = (ushort)WinFormsUtil.GetIndex(CB_Species);
         LB_Species.SelectedIndex = species - 1; // Since we don't allow index0 in combobox, everything is shifted by 1
         LB_Species.TopIndex = LB_Species.SelectedIndex;
         GetEntry();
@@ -71,8 +69,8 @@ public partial class SAV_Pokedex4 : Form
         SetEntry();
 
         editing = true;
-        species = LB_Species.SelectedIndex + 1;
-        CB_Species.SelectedValue = species;
+        species = (ushort)(LB_Species.SelectedIndex + 1);
+        CB_Species.SelectedValue = (int)species;
         GetEntry();
         editing = false;
     }
@@ -121,7 +119,8 @@ public partial class SAV_Pokedex4 : Form
 
         string[] formNames = GetFormNames4Dex(species);
 
-        var seen = forms.Where(z => z >= 0 && z < forms.Length).Distinct().Select((_, i) => formNames[forms[i]]).ToArray();
+        var seen_checked = SAV.Dex.GetSeen(species);
+        var seen = forms.Where(z => seen_checked && z != FORM_NONE && z < forms.Length).Distinct().Select((_, i) => formNames[forms[i]]).ToArray();
         var not = formNames.Except(seen).ToArray();
 
         LB_Form.Items.AddRange(seen);
@@ -159,7 +158,7 @@ public partial class SAV_Pokedex4 : Form
 
     private void SetEntry()
     {
-        if (species < 0)
+        if (species > 493)
             return;
 
         var dex = SAV.Dex;
@@ -169,7 +168,7 @@ public partial class SAV_Pokedex4 : Form
         if (LB_Gender.Items.Count != 0)
         {
             var femaleFirst = LB_Gender.Items[0].ToString() == FEMALE;
-            var firstGender = femaleFirst ? 1 : 0;
+            var firstGender = femaleFirst ? (byte)1: (byte)0;
             dex.SetSeenGenderNewFlag(species, firstGender);
             if (LB_Gender.Items.Count != 1)
                 dex.SetSeenGenderSecond(species, firstGender ^ 1);
@@ -182,12 +181,13 @@ public partial class SAV_Pokedex4 : Form
         }
 
         var forms = SAV.Dex.GetForms(species);
-        if (forms.Length > 0)
+        if (forms.Length != 0)
         {
-            int[] arr = new int[LB_Form.Items.Count];
+            var items = LB_Form.Items;
+            Span<byte> arr = stackalloc byte[items.Count];
             string[] formNames = GetFormNames4Dex(species);
-            for (int i = 0; i < LB_Form.Items.Count; i++)
-                arr[i] = Array.IndexOf(formNames, (string)LB_Form.Items[i]);
+            for (int i = 0; i < items.Count; i++)
+                arr[i] = (byte)formNames.IndexOf((string)items[i]); // shouldn't ever fail
             SAV.Dex.SetForms(species, arr);
         }
     }
@@ -238,11 +238,11 @@ public partial class SAV_Pokedex4 : Form
         else
             args = SetDexArgs.None;
 
-        for (int i = 0; i < LB_Species.Items.Count; i++)
-            SAV.Dex.ModifyAll(i + 1, args, lang);
+        for (ushort i = 1; i <= 493; i++)
+            SAV.Dex.ModifyAll(i, args, lang);
 
         GetEntry();
-        System.Media.SystemSounds.Asterisk.Play();
+        WinFormsUtil.Asterisk();
     }
 
     private void CHK_Seen_CheckedChanged(object sender, EventArgs e)
@@ -279,13 +279,14 @@ public partial class SAV_Pokedex4 : Form
         if (editing)
             return;
         var lb = sender == B_GLeft ? LB_NGender : LB_Gender;
-        if (lb == null || lb.SelectedIndex < 0)
+        if (lb is null || lb.SelectedIndex < 0)
         {
             WinFormsUtil.Alert("No Gender selected.");
             return;
         }
 
         var item = lb.SelectedItem;
+        ArgumentNullException.ThrowIfNull(item);
         lb.Items.RemoveAt(lb.SelectedIndex);
         var dest = lb == LB_Gender ? LB_NGender : LB_Gender;
         dest.Items.Add(item);
@@ -297,7 +298,7 @@ public partial class SAV_Pokedex4 : Form
         if (editing)
             return;
         var lb = LB_Gender;
-        if (lb == null || lb.SelectedIndex < 0)
+        if (lb is null || lb.SelectedIndex < 0)
         {
             WinFormsUtil.Alert("No Gender selected.");
             return;
@@ -316,6 +317,7 @@ public partial class SAV_Pokedex4 : Form
             return;
 
         var item = lb.SelectedItem;
+        ArgumentNullException.ThrowIfNull(item);
         lb.Items.Remove(item);
         lb.Items.Insert(newIndex, item);
         lb.SelectedIndex = newIndex;
@@ -326,13 +328,14 @@ public partial class SAV_Pokedex4 : Form
         if (editing)
             return;
         var lb = sender == B_FLeft ? LB_NForm : LB_Form;
-        if (lb == null || lb.SelectedIndex < 0)
+        if (lb is null || lb.SelectedIndex < 0)
         {
             WinFormsUtil.Alert("No Form selected.");
             return;
         }
 
         var item = lb.SelectedItem;
+        ArgumentNullException.ThrowIfNull(item);
         lb.Items.RemoveAt(lb.SelectedIndex);
         var dest = lb == LB_Form ? LB_NForm : LB_Form;
         dest.Items.Add(item);
@@ -344,7 +347,7 @@ public partial class SAV_Pokedex4 : Form
         if (editing)
             return;
         var lb = LB_Form;
-        if (lb == null || lb.SelectedIndex < 0)
+        if (lb is null || lb.SelectedIndex < 0)
         {
             WinFormsUtil.Alert("No Form selected.");
             return;
@@ -363,6 +366,7 @@ public partial class SAV_Pokedex4 : Form
             return;
 
         var item = lb.SelectedItem;
+        ArgumentNullException.ThrowIfNull(item);
         lb.Items.Remove(item);
         lb.Items.Insert(newIndex, item);
         lb.SelectedIndex = newIndex;

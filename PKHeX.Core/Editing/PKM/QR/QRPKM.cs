@@ -1,8 +1,11 @@
-﻿using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Generic;
+using System.Text;
 
 namespace PKHeX.Core;
 
+/// <summary>
+/// Logic for encoding and decoding QR codes used to visually transfer data between other applications.
+/// </summary>
 public static class QRPKM
 {
     /// <summary>
@@ -15,16 +18,27 @@ public static class QRPKM
         var s = GameInfo.Strings;
 
         var header = GetHeader(pk, s);
-        string moves = string.Join(" / ", pk.Moves.Select(move => move < s.movelist.Length ? s.movelist[move] : "ERROR"));
+        var sb = new StringBuilder(48);
+        for (int i = 0; i < 4; i++)
+        {
+            var move = pk.GetMove(i);
+            if (move == 0)
+                continue;
+            if (sb.Length != 0)
+                sb.Append(Moveset.DefaultSeparator);
+            var moveName = move < s.movelist.Length ? s.movelist[move] : "ERROR";
+            sb.Append(moveName);
+        }
+
         string IVs = $"IVs: {pk.IV_HP:00}/{pk.IV_ATK:00}/{pk.IV_DEF:00}/{pk.IV_SPA:00}/{pk.IV_SPD:00}/{pk.IV_SPE:00}";
         string EVs = $"EVs: {pk.EV_HP:00}/{pk.EV_ATK:00}/{pk.EV_DEF:00}/{pk.EV_SPA:00}/{pk.EV_SPD:00}/{pk.EV_SPE:00}";
 
-        return new[]
-        {
-            string.Join(" ", header),
-            moves,
+        return
+        [
+            string.Join(' ', header),
+            sb.ToString(),
             IVs + "   " + EVs,
-        };
+        ];
     }
 
     private static IEnumerable<string> GetHeader(PKM pk, GameStrings s)
@@ -48,12 +62,12 @@ public static class QRPKM
 
         if (pk.HeldItem > 0)
         {
-            var items = s.GetItemStrings(pk.Format);
+            var items = s.GetItemStrings(pk.Context);
             if ((uint)pk.HeldItem < items.Length)
                 yield return $" @ {items[pk.HeldItem]}";
         }
 
         if (pk.Format >= 3 && (uint)pk.Nature < s.Natures.Count)
-            yield return s.natures[pk.Nature];
+            yield return s.natures[(byte)pk.Nature];
     }
 }

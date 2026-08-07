@@ -1,6 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using static PKHeX.Core.EggSource6;
 
 namespace PKHeX.Core;
@@ -11,37 +11,34 @@ namespace PKHeX.Core;
 /// <remarks>Refer to <see cref="EggSource6"/> for inheritance ordering.</remarks>
 public static class MoveBreed6
 {
-    private const int level = 1;
+    private const byte Level = EncounterEgg6.Level;
 
-    public static EggSource6[] Validate(int generation, int species, int form, GameVersion version, ReadOnlySpan<int> moves, out bool valid)
+    /// <inheritdoc cref="MoveBreed.Validate"/>
+    public static bool Validate(byte generation, ushort species, byte form, GameVersion version, ReadOnlySpan<ushort> moves, Span<byte> origins)
     {
-        var count = moves.IndexOf(0);
+        var count = moves.IndexOf((ushort)0);
         if (count == 0)
-        {
-            valid = false; // empty moveset
-            return Array.Empty<EggSource6>();
-        }
+            return false;
         if (count == -1)
             count = moves.Length;
 
-        var learn = GameData.GetLearnsets(version);
-        var table = GameData.GetPersonal(version);
-        var index = table.GetFormIndex(species, form);
-        var learnset = learn[index];
-        var egg = MoveEgg.GetEggMoves(generation, species, form, version);
+        var learn = GameData.GetLearnSource(version);
+        var learnset = learn.GetLearnset(species, form);
 
-        var actual = new EggSource6[count];
+        var actual = MemoryMarshal.Cast<byte, EggSource6>(origins);
         Span<byte> possible = stackalloc byte[count];
-        var value = new BreedInfo<EggSource6>(actual, possible, learnset, moves, level);
+        var value = new BreedInfo<EggSource6>(actual, possible, learnset, moves, Level);
         if (species is (int)Species.Pichu && moves[count - 1] is (int)Move.VoltTackle)
             actual[--count] = VoltTackle;
 
+        bool valid;
         if (count == 0)
         {
             valid = VerifyBaseMoves(value);
         }
         else
         {
+            var egg = learn.GetEggMoves(species, form);
             bool inherit = Breeding.GetCanInheritMoves(species);
             MarkMovesForOrigin(value, egg, count, inherit);
             valid = RecurseMovesForOrigin(value, count - 1);
@@ -49,17 +46,17 @@ public static class MoveBreed6
 
         if (!valid)
             CleanResult(actual, possible);
-        return value.Actual;
+        return valid;
     }
 
-    private static void CleanResult(EggSource6[] valueActual, Span<byte> valuePossible)
+    private static void CleanResult(Span<EggSource6> valueActual, Span<byte> valuePossible)
     {
-        for (int i = 0; i < valueActual.Length; i++)
+        for (int i = 0; i < valuePossible.Length; i++)
         {
-            if (valueActual[i] != 0)
-                continue;
             var poss = valuePossible[i];
             if (poss == 0)
+                continue;
+            if (valueActual[i] != 0)
                 continue;
 
             for (int j = 0; j < (int)Max; j++)
@@ -131,7 +128,8 @@ public static class MoveBreed6
             if (!isBase)
                 continue;
 
-            var baseIndex = baseMoves.IndexOf(info.Moves[i]);
+            var move = info.Moves[i];
+            var baseIndex = baseMoves.IndexOf(move);
             var min = info.Moves.Length - baseMoves.Length + baseIndex;
             if (i < min + count)
                 return false;
@@ -140,7 +138,7 @@ public static class MoveBreed6
         return true;
     }
 
-    private static void MarkMovesForOrigin(in BreedInfo<EggSource6> value, ICollection<int> eggMoves, int count, bool inheritLevelUp)
+    private static void MarkMovesForOrigin(in BreedInfo<EggSource6> value, ReadOnlySpan<ushort> eggMoves, int count, bool inheritLevelUp)
     {
         var possible = value.Possible;
         var learn = value.Learnset;
@@ -151,10 +149,10 @@ public static class MoveBreed6
         {
             var move = moves[i];
 
-            if (baseEgg.IndexOf(move) != -1)
+            if (baseEgg.Contains(move))
                 possible[i] |= 1 << (int)Base;
 
-            if (inheritLevelUp && learn.GetLevelLearnMove(move) != -1)
+            if (inheritLevelUp && learn.GetIsLearn(move))
                 possible[i] |= 1 << (int)ParentLevelUp;
 
             if (eggMoves.Contains(move))

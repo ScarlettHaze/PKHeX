@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace PKHeX.Core;
@@ -19,9 +20,10 @@ public ref struct XorShift128
     // not really readonly! just prevents future updates from touching this.
     [FieldOffset(0x0)] private readonly ulong s0;
     [FieldOffset(0x8)] private readonly ulong s1;
+    [FieldOffset(0x0)] public readonly UInt128 State;
 
     /// <summary>
-    /// Uses the <see cref="RNG.ARNG"/> to advance the seed for each 32-bit input.
+    /// Uses the <see cref="ARNG"/> to advance the seed for each 32-bit input.
     /// </summary>
     /// <param name="seed">32 bit seed</param>
     /// <remarks>sub_E0F5E0 in v1.1.3</remarks>
@@ -47,9 +49,11 @@ public ref struct XorShift128
         this.w = w;
     }
 
-    public (uint x, uint y, uint z, uint w) GetState32() => (x, y, z, w);
-    public (ulong s0, ulong s1) GetState64() => (s0, s1);
-    public string FullState => $"{s1:X16}{s0:X16}";
+    public XorShift128(UInt128 state) => State = state;
+
+    public readonly (uint x, uint y, uint z, uint w) GetState32() => (x, y, z, w);
+    public readonly (ulong s0, ulong s1) GetState64() => (s0, s1);
+    public readonly bool Equals(ulong state0, ulong state1) => s0 == state0 && s1 == state1;
 
     /// <summary>
     /// Gets the next random <see cref="ulong"/>.
@@ -71,14 +75,12 @@ public ref struct XorShift128
         var t = w ^ z ^ (z >> 19);
         t ^= t >> 8;
         t ^= t >> 16;
+        t ^= t << 11;
+        t ^= t << 22;
 
         w = z;
         z = y;
         y = x;
-
-        t ^= t << 11;
-        t ^= t << 22;
-
         x = t;
         return w;
     }

@@ -1,17 +1,12 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 
 namespace PKHeX.Core;
 
-public sealed class Poffin4
+public sealed class Poffin4(Memory<byte> Raw)
 {
     public const int SIZE = 8;
-    public readonly byte[] Data;
-
-    public Poffin4(byte[] data) => Data = data;
-    public Poffin4(byte[] data, int offset) : this(data.AsSpan(offset, SIZE).ToArray())
-    {
-    }
+    public Span<byte> Data => Raw.Span;
 
     private const string Stats = nameof(Stats);
 
@@ -35,6 +30,8 @@ public sealed class Poffin4
     [Category(Stats), Description("Sheen Stat Boost")]
     public byte Smoothness  { get => Data[6]; set => Data[6] = value; }
     // public byte Unused   { get => Data[7]; set => Data[7] = value; }
+
+    public byte Level => Math.Max(Math.Max(Math.Max(Math.Max(BoostSpicy, BoostDry), BoostSweet), BoostBitter), BoostSour);
 
     public bool IsManyStat => Type >= PoffinFlavor4.Rich;
     public PoffinFlavor4 StatPrimary => IsManyStat ? PoffinFlavor4.None : (PoffinFlavor4)(((byte) Type / 5) * 6);

@@ -1,5 +1,5 @@
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -14,7 +14,7 @@ public partial class PokeGrid : UserControl
         InitializeComponent();
     }
 
-    public readonly List<PictureBox> Entries = new();
+    public readonly List<PictureBox> Entries = [];
     public int Slots { get; private set; }
 
     private int sizeW = 68;
@@ -40,6 +40,22 @@ public partial class PokeGrid : UserControl
     private const int padEdge = 1; // edges
     private const int border = 1; // between
 
+    public static Size GetGridSize(int width, int height, int spriteWidth, int spriteHeight)
+    {
+        int w = (2 * padEdge) + border + (width * (spriteWidth + border));
+        int h = (2 * padEdge) + border + (height * (spriteHeight + border));
+        return new Size(w, h);
+    }
+
+    public static int GetMaxRowCount(int availableHeight, int spriteHeight)
+    {
+        var heightOffset = (2 * padEdge) + border;
+        var rowHeight = spriteHeight + border;
+        if (rowHeight <= 0)
+            return 1;
+        return Math.Max(1, (availableHeight - heightOffset) / rowHeight);
+    }
+
     private void Generate(int width, int height)
     {
         SuspendLayout();
@@ -57,24 +73,27 @@ public partial class PokeGrid : UserControl
             var y = padEdge + (row * (rowHeight + border));
             for (int column = 0; column < width; column++)
             {
+                var name = $"Pokémon Grid Row {row:00} Column {column:00}";
                 var x = padEdge + (column * (colWidth + border));
-                var pb = GetControl(sizeW, sizeH);
+                var pb = GetControl(sizeW, sizeH, name);
                 pb.Location = new Point(x, y);
                 Entries.Add(pb);
             }
         }
 
-        int w = (2 * padEdge) + border + (width * (colWidth + border));
-        int h = (2 * padEdge) + border + (height * (rowHeight + border));
-        Size = new Size(w, h);
+        Size = GetGridSize(width, height, colWidth, rowHeight);
         Controls.AddRange(Entries.Cast<Control>().ToArray());
-        Debug.WriteLine($"{Name} -- Width: {Width}, Height: {Height}");
         ResumeLayout();
     }
 
-    public void SetBackground(Image img) => BackgroundImage = img;
+    public void SetBackground(Bitmap img)
+    {
+        if (Application.IsDarkModeEnabled)
+            img = Drawing.ImageUtil.CopyChangeOpacity(img, 0.5);
+        BackgroundImage = img;
+    }
 
-    public static PictureBox GetControl(int width, int height) => new()
+    public static SelectablePictureBox GetControl(int width, int height, string name) => new()
     {
         AutoSize = false,
         SizeMode = PictureBoxSizeMode.CenterImage,
@@ -84,5 +103,8 @@ public partial class PokeGrid : UserControl
         Padding = Padding.Empty,
         Margin = Padding.Empty,
         BorderStyle = BorderStyle.FixedSingle,
+        AccessibleRole = AccessibleRole.Alert,
+        Name = name,
+        AccessibleName = name,
     };
 }

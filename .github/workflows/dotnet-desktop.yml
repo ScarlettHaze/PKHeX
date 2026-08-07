@@ -1,0 +1,68 @@
+# Build, test, and package PKHeX (Windows Forms, .NET) with GitHub Actions.
+#
+# This workflow builds the solution, runs the PKHeX.Core.Tests test project,
+# publishes PKHeX.WinForms as a single-file executable, and uploads it as a
+# build artifact. It does not do code signing or MSIX packaging, since
+# PKHeX does not use a Windows Application Packaging project.
+
+name: .NET Desktop Build (PKHeX)
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+
+    runs-on: windows-latest
+
+    env:
+      Solution_Name: PKHeX.sln
+      Test_Project_Path: Tests\PKHeX.Core.Tests\PKHeX.Core.Tests.csproj
+      WinForms_Project_Path: PKHeX.WinForms\PKHeX.WinForms.csproj
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # PKHeX currently targets .NET 10 - adjust if the repo's global.json /
+    # csproj TargetFramework says otherwise.
+    - name: Install .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore $env:Solution_Name
+
+    - name: Build solution
+      run: dotnet build $env:Solution_Name --configuration $env:Configuration --no-restore
+      env:
+        Configuration: ${{ matrix.configuration }}
+
+    - name: Run unit tests
+      run: dotnet test $env:Test_Project_Path --configuration $env:Configuration --no-build
+      env:
+        Configuration: ${{ matrix.configuration }}
+
+    # Publish the WinForms app as a single-file build (matches PKHeX's own
+    # PublishSingleFile/PublishReadyToRun csproj settings). Only do this for
+    # Release to avoid uploading Debug binaries unnecessarily.
+    - name: Publish PKHeX.WinForms
+      if: matrix.configuration == 'Release'
+      run: dotnet publish $env:WinForms_Project_Path --configuration Release --runtime win-x64 --self-contained false --output ./publish
+
+    - name: Upload build artifact
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: PKHeX-win-x64
+        path: ./publish

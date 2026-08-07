@@ -1,4 +1,5 @@
-﻿using static PKHeX.Core.GroundTileType;
+using System;
+using static PKHeX.Core.GroundTileType;
 
 namespace PKHeX.Core;
 
@@ -8,7 +9,7 @@ namespace PKHeX.Core;
 /// <remarks>
 /// Used in Generation 4 games, this value is set depending on what type of overworld tile the player is standing on when the <see cref="PKM"/> is obtained.
 /// </remarks>
-#pragma warning disable RCS1234 // Duplicate enum value.
+#pragma warning disable CA1069, RCS1234 // Enums values should not be duplicated
 public enum GroundTileType : byte
 {
     None     = 00, // No animation for the tile
@@ -23,7 +24,7 @@ public enum GroundTileType : byte
     Building = 09,
     Marsh    = 10,
     Bridge   = 11, // No encounters from this tile type
-    Max_DP   = 12, // Unspecific, catch-all for DP undefined tiles.
+    Max_DP   = 12, // Unspecific, catch-all for D/P undefined tiles.
 
     // added tile types in Pt
     // no encounters from these tile types
@@ -42,14 +43,16 @@ public enum GroundTileType : byte
     Distortion         = 23,
     Max_Pt             = 24, // Unspecific, catch-all for Pt undefined tiles.
 }
-#pragma warning restore RCS1234 // Duplicate enum value.
 
 public static class GroundTileTypeExtensions
 {
-    public static bool IsObtainable(this GroundTileType type) => ((0b_1_10000000_00010110_10110111 >> (int) type) & 1) == 1;
-
-    public static readonly byte[] ValidTileTypes =
+    extension(GroundTileType type)
     {
+        public bool IsObtainable => ((0b_1_10000000_00010110_10110111 >> (int) type) & 1) == 1;
+    }
+
+    public static ReadOnlySpan<byte> ValidTileTypes =>
+    [
         (byte)None, (byte)Sand, (byte)Grass, (byte)Rock, (byte)Cave, (byte)Water, (byte)Building, (byte)Marsh, (byte)Max_DP, (byte)Distortion, (byte)Max_Pt,
-    };
+    ];
 }

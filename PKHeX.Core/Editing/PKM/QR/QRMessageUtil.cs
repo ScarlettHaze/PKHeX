@@ -1,5 +1,6 @@
-﻿using System;
-using System.Linq;
+using System;
+using System.Buffers;
+using System.Diagnostics;
 
 namespace PKHeX.Core;
 
@@ -11,8 +12,8 @@ public static class QRMessageUtil
     private const string QR6PathBad = "null/#";
     private const string QR6Path = "http://lunarcookies.github.io/b1s1.html#";
     private const string QR6PathWC = "http://lunarcookies.github.io/wc.html#";
-    private static string GetExploitURLPrefixPKM(int format) => format == 6 ? QR6Path : QR6PathBad;
-    private static string GetExploitURLPrefixWC(int format) => format == 6 ? QR6PathWC : QR6PathBad;
+    private static string GetExploitURLPrefixPKM(byte format) => format == 6 ? QR6Path : QR6PathBad;
+    private static string GetExploitURLPrefixWC(byte format) => format == 6 ? QR6PathWC : QR6PathBad;
 
     /// <summary>
     /// Gets the <see cref="PKM"/> data from the message that is encoded in a QR.
@@ -20,10 +21,10 @@ public static class QRMessageUtil
     /// <param name="message">QR Message</param>
     /// <param name="context">Preferred <see cref="PKM.Context"/> to expect.</param>
     /// <returns>Decoded <see cref="PKM"/> object, null if invalid.</returns>
-    public static PKM? GetPKM(string message, EntityContext context)
+    public static PKM? GetPKM(ReadOnlySpan<char> message, EntityContext context)
     {
         var data = DecodeMessagePKM(message);
-        if (data == null)
+        if (data is null)
             return null;
         return EntityFormat.GetFromBytes(data, context);
     }
@@ -36,14 +37,20 @@ public static class QRMessageUtil
     public static string GetMessage(PKM pk)
     {
         if (pk is PK7 pk7)
-        {
-            byte[] payload = QR7.GenerateQRData(pk7);
-            return GetMessage(payload);
-        }
+            return GetMessage(pk7);
 
         var server = GetExploitURLPrefixPKM(pk.Format);
-        var data = pk.EncryptedBoxData;
+        Span<byte> data = stackalloc byte[pk.SIZE_STORED];
+        pk.WriteEncryptedDataStored(data);
         return GetMessageBase64(data, server);
+    }
+
+    /// <inheritdoc cref="GetMessage(PKM)"/>
+    public static string GetMessage(PK7 pk7, int box = 0, int slot = 0, int num_copies = 1)
+    {
+        Span<byte> data = stackalloc byte[QR7.SIZE];
+        QR7.SetQRData(pk7, data, box, slot, num_copies);
+        return GetMessage(data);
     }
 
     /// <summary>
@@ -51,7 +58,13 @@ public static class QRMessageUtil
     /// </summary>
     /// <param name="payload">Data to encode</param>
     /// <returns>QR Message</returns>
-    public static string GetMessage(byte[] payload) => string.Concat(payload.Select(z => (char) z));
+    public static string GetMessage(ReadOnlySpan<byte> payload)
+    {
+        Span<char> result = stackalloc char[payload.Length];
+        for (int i = 0; i < payload.Length; i++)
+            result[i] = (char)payload[i];
+        return new string(result);
+    }
 
     /// <summary>
     /// Gets a QR Message from the input <see cref="MysteryGift"/> data.
@@ -65,13 +78,19 @@ public static class QRMessageUtil
         return GetMessageBase64(data, server);
     }
 
-    public static string GetMessageBase64(byte[] data, string server)
+    /// <summary>
+    /// Gets a QR Message from the input <see cref="byte"/> data.
+    /// </summary>
+    /// <param name="data">Data to include in the payload</param>
+    /// <param name="server">Website URL that sources the payload</param>
+    /// <returns>QR Message</returns>
+    public static string GetMessageBase64(ReadOnlySpan<byte> data, string server)
     {
         string payload = Convert.ToBase64String(data);
         return server + payload;
     }
 
-    private static byte[]? DecodeMessagePKM(string message)
+    private static byte[]? DecodeMessagePKM(ReadOnlySpan<char> message)
     {
         if (message.Length < 32) // arbitrary length check; everything should be greater than this
             return null;
@@ -79,35 +98,41 @@ public static class QRMessageUtil
             return DecodeMessageDataBase64(message);
         if (message.StartsWith("http", StringComparison.Ordinal)) // inject url
             return DecodeMessageDataBase64(message);
-        if (message.StartsWith("POKE", StringComparison.Ordinal) && message.Length > 0x30 + 0xE8) // G7 data
-            return GetBytesFromMessage(message, 0x30, 0xE8);
+
+        const int g7size = PokeCrypto.SIZE_6STORED; // 0xE8;
+        const int g7intro = 0x30;
+        if (message.StartsWith("POKE", StringComparison.Ordinal) && message.Length > g7intro + g7size) // G7 data
+            return GetBytesFromMessage(message[g7intro..], g7size);
         return null;
     }
 
-    private static byte[]? DecodeMessageDataBase64(string url)
+    private static byte[]? DecodeMessageDataBase64(ReadOnlySpan<char> url)
     {
-        if (url.Length == 0 || url[^1] == '#')
-            return null;
+        int payloadBegin = url.IndexOf('#');
+        if (payloadBegin == -1)
+            return null; // bad URL, need the payload separator
+        if (payloadBegin == url.Length - 1)
+            return null; // no payload
 
-        try
-        {
-            int payloadBegin = url.IndexOf('#');
-            if (payloadBegin < 0) // bad URL, need the payload separator
-                return null;
-            url = url[(payloadBegin + 1)..]; // Trim URL to right after #
-            return Convert.FromBase64String(url);
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
+        url = url[(payloadBegin + 1)..]; // Trim URL to right after #
+        // Decode unicode string -- size might be pretty big (user input), so just rent instead of stackalloc
+        var tmp = ArrayPool<byte>.Shared.Rent(url.Length);
+        var result = Convert.TryFromBase64Chars(url, tmp, out int bytesWritten) ? tmp[..bytesWritten] : null;
+        ArrayPool<byte>.Shared.Return(tmp, true);
+        return result;
     }
 
-    private static byte[] GetBytesFromMessage(string seed, int skip, int take)
+    private static byte[] GetBytesFromMessage(ReadOnlySpan<char> input, int count)
     {
-        byte[] data = new byte[take];
-        for (int i = 0; i < take; i++)
-            data[i] = (byte)seed[i + skip];
-        return data;
+        byte[] result = new byte[count];
+        GetBytesFromMessage(input, result);
+        return result;
+    }
+
+    private static void GetBytesFromMessage(ReadOnlySpan<char> input, Span<byte> output)
+    {
+        Debug.Assert(input.Length >= output.Length);
+        for (int i = 0; i < output.Length; i++)
+            output[i] = (byte)input[i];
     }
 }

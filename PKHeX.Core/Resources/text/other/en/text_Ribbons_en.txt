@@ -1,4 +1,4 @@
-﻿RibbonChampionKalos	Kalos Champion
+RibbonChampionKalos	Kalos Champion
 RibbonChampionG3	Champion (Gen3)
 RibbonChampionSinnoh	Sinnoh Champion
 RibbonBestFriends	Best Friends
@@ -98,7 +98,7 @@ RibbonCountG3Cute	Cute
 RibbonCountG3Smart	Smart
 RibbonCountG3Tough	Tough
 RibbonChampionAlola	Alola Champion
-RibbonBattleRoyale	Battle Royal Champion
+RibbonBattleRoyale	Battle Royal Master
 RibbonBattleTreeGreat	Battle Tree Great
 RibbonBattleTreeMaster	Battle Tree Master
 RibbonChampionGalar	Galar Champion
@@ -149,5 +149,16 @@ RibbonMarkHumble	Humble Mark
 RibbonMarkThorny	Thorny Mark
 RibbonMarkVigor	Vigor Mark
 RibbonMarkSlump	Slump Mark
-RibbonPioneer	Pioneer
+RibbonHisui	Hisui
 RibbonTwinklingStar	Twinkling Star
+RibbonChampionPaldea	Paldea Champion
+RibbonMarkJumbo	Jumbo Mark
+RibbonMarkMini	Mini Mark
+RibbonMarkItemfinder	Itemfinder Mark
+RibbonMarkPartner	Partner Mark
+RibbonMarkGourmand	Gourmand Mark
+RibbonOnceInALifetime	Once-in-a-Lifetime
+RibbonMarkAlpha	Alpha Mark
+RibbonMarkMightiest	Mightiest Mark
+RibbonMarkTitan	Titan Mark
+RibbonPartner	Partner

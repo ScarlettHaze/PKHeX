@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System;
 
 namespace PKHeX.Core;
 
@@ -9,233 +7,104 @@ namespace PKHeX.Core;
 /// </summary>
 public static class RibbonApplicator
 {
-    private static List<string> GetAllRibbonNames(PKM pk) => RibbonInfo.GetRibbonInfo(pk).Select(z => z.Name).ToList();
-
-    /// <summary>
-    /// Gets a list of valid ribbons for the <see cref="pk"/>.
-    /// </summary>
-    /// <param name="pk">Entity to fetch the list for.</param>
-    /// <param name="allRibbons">All ribbon names.</param>
-    /// <returns>List of all valid ribbon names.</returns>
-    public static IReadOnlyList<string> GetValidRibbons(PKM pk, IList<string> allRibbons)
-    {
-        var clone = pk.Clone();
-        return SetAllValidRibbons(allRibbons, clone);
-    }
-
-    /// <summary>
-    /// Gets a list of valid ribbons for the <see cref="pk"/>.
-    /// </summary>
-    /// <param name="pk">Entity to fetch the list for.</param>
-    /// <returns>List of all valid ribbon names.</returns>
-    public static IReadOnlyList<string> GetValidRibbons(PKM pk)
-    {
-        var names = GetAllRibbonNames(pk);
-        return GetValidRibbons(pk, names);
-    }
-
-    /// <summary>
-    /// Gets a list of valid ribbons for the <see cref="pk"/> that can be removed.
-    /// </summary>
-    /// <param name="pk">Entity to fetch the list for.</param>
-    /// <param name="allRibbons">All ribbon names.</param>
-    /// <returns>List of all removable ribbon names.</returns>
-    public static IReadOnlyList<string> GetRemovableRibbons(PKM pk, IList<string> allRibbons)
-    {
-        var clone = pk.Clone();
-        return RemoveAllValidRibbons(allRibbons, clone);
-    }
-
-    /// <summary>
-    /// Gets a list of valid ribbons for the <see cref="pk"/> that can be removed.
-    /// </summary>
-    /// <param name="pk">Entity to fetch the list for.</param>
-    /// <returns>List of all removable ribbon names.</returns>
-    public static IReadOnlyList<string> GetRemovableRibbons(PKM pk)
-    {
-        var names = GetAllRibbonNames(pk);
-        return GetRemovableRibbons(pk, names);
-    }
-
     /// <summary>
     /// Sets all valid ribbons to the <see cref="pk"/>.
     /// </summary>
     /// <param name="pk">Entity to set ribbons for.</param>
-    /// <returns>True if any ribbons were applied.</returns>
-    public static bool SetAllValidRibbons(PKM pk)
+    public static void SetAllValidRibbons(PKM pk) => SetAllValidRibbons(new LegalityAnalysis(pk));
+
+    /// <inheritdoc cref="SetAllValidRibbons(PKM)"/>
+    public static void SetAllValidRibbons(LegalityAnalysis la) => SetAllValidRibbons(la.Entity, la.EncounterMatch, la.Info.EvoChainsAllGens);
+
+    /// <inheritdoc cref="SetAllValidRibbons(PKM)"/>
+    public static void SetAllValidRibbons(PKM pk, IEncounterTemplate enc, EvolutionHistory history)
     {
-        var ribNames = GetAllRibbonNames(pk);
-        ribNames.RemoveAll(z => z.StartsWith("RibbonMark", StringComparison.Ordinal)); // until marking legality is handled
-        return SetAllValidRibbons(pk, ribNames);
-    }
+        var args = new RibbonVerifierArguments(pk, enc, history);
+        SetAllRibbonState(args, true);
+        FixInvalidRibbons(args);
 
-    /// <summary>
-    /// Sets all valid ribbons to the <see cref="pk"/>.
-    /// </summary>
-    /// <param name="pk">Entity to set ribbons for.</param>
-    /// <param name="ribNames">Ribbon names to try setting.</param>
-    /// <returns>True if any ribbons were applied.</returns>
-    public static bool SetAllValidRibbons(PKM pk, List<string> ribNames)
-    {
-        var list = SetAllValidRibbons(ribNames, pk);
-        return list.Count != 0;
-    }
-
-    private static IReadOnlyList<string> SetAllValidRibbons(IList<string> allRibbons, PKM pk)
-    {
-        var la = new LegalityAnalysis(pk);
-        var valid = new List<string>();
-
-        while (TryApplyAllRibbons(pk, la, allRibbons, valid) != 0)
-        {
-            // Repeat the operation until no more ribbons are set.
-        }
-
-        // Ribbon Deadlock
-        if (pk is IRibbonSetCommon6 c6)
-            InvertDeadlockContest(c6, la, true);
-
-        return valid;
-    }
-
-    /// <summary>
-    /// Sets all valid ribbons to the <see cref="pk"/>.
-    /// </summary>
-    /// <param name="pk">Entity to set ribbons for.</param>
-    /// <returns>True if any ribbons were removed.</returns>
-    public static bool RemoveAllValidRibbons(PKM pk)
-    {
-        var ribNames = GetAllRibbonNames(pk);
-        return RemoveAllValidRibbons(pk, ribNames);
-    }
-
-    /// <summary>
-    /// Sets all valid ribbons to the <see cref="pk"/>.
-    /// </summary>
-    /// <param name="pk">Entity to set ribbons for.</param>
-    /// <param name="ribNames">Ribbon names to try setting.</param>
-    /// <returns>True if any ribbons were removed.</returns>
-    public static bool RemoveAllValidRibbons(PKM pk, List<string> ribNames)
-    {
-        var list = RemoveAllValidRibbons(ribNames, pk);
-        return list.Count != 0;
-    }
-
-    private static IReadOnlyList<string> RemoveAllValidRibbons(IList<string> allRibbons, PKM pk)
-    {
-        var la = new LegalityAnalysis(pk);
-        var valid = new List<string>();
-
-        // Ribbon Deadlock
-        if (pk is IRibbonSetCommon6 c6)
-            InvertDeadlockContest(c6, la, false);
-
-        while (TryRemoveAllRibbons(pk, la, allRibbons, valid) != 0)
-        {
-            // Repeat the operation until no more ribbons are set.
-        }
-
-        return valid;
-    }
-
-    private static int TryApplyAllRibbons(PKM pk, LegalityAnalysis la, IList<string> allRibbons, ICollection<string> valid)
-    {
-        int applied = 0;
-        for (int i = 0; i < allRibbons.Count;)
-        {
-            la.ResetParse();
-            var rib = allRibbons[i];
-            var success = TryApplyRibbon(pk, la, rib);
-            if (success)
-            {
-                ++applied;
-                allRibbons.RemoveAt(i);
-                valid.Add(rib);
-            }
-            else
-            {
-                RemoveRibbon(pk, rib);
-                ++i;
-            }
-        }
-
-        return applied;
-    }
-
-    private static int TryRemoveAllRibbons(PKM pk, LegalityAnalysis la, IList<string> allRibbons, ICollection<string> valid)
-    {
-        int removed = 0;
-        for (int i = 0; i < allRibbons.Count;)
-        {
-            la.ResetParse();
-            var rib = allRibbons[i];
-            var success = TryRemoveRibbon(pk, la, rib);
-            if (success)
-            {
-                ++removed;
-                allRibbons.RemoveAt(i);
-                valid.Add(rib);
-            }
-            else
-            {
-                SetRibbonValue(pk, rib, 1);
-                ++i;
-            }
-        }
-
-        return removed;
-    }
-
-    private static void RemoveRibbon(PKM pk, string rib) => SetRibbonValue(pk, rib, 0);
-
-    private static bool TryRemoveRibbon(PKM pk, LegalityAnalysis la, string rib)
-    {
-        RemoveRibbon(pk, rib);
-        return UpdateIsValid(la);
-    }
-
-    private static bool TryApplyRibbon(PKM pk, LegalityAnalysis la, string rib)
-    {
-        SetRibbonValue(pk, rib, 1);
-        return UpdateIsValid(la);
-    }
-
-    private static bool UpdateIsValid(LegalityAnalysis la)
-    {
-        LegalityAnalyzers.Ribbon.Verify(la);
-        return la.Results.All(z => z.Valid);
-    }
-
-    private static void SetRibbonValue(PKM pk, string rib, int value)
-    {
-        switch (rib)
-        {
-            case nameof(PK7.RibbonCountMemoryBattle):
-                ReflectUtil.SetValue(pk, rib, value * (pk.Gen4 ? 6 : 8));
-                break;
-            case nameof(PK7.RibbonCountMemoryContest):
-                ReflectUtil.SetValue(pk, rib, value * (pk.Gen4 ? 20 : 40));
-                break;
-            default:
-                if (rib.StartsWith("RibbonCountG3", StringComparison.Ordinal))
-                    ReflectUtil.SetValue(pk, rib, value * 4);
-                else
-                    ReflectUtil.SetValue(pk, rib, value != 0);
-                break;
-        }
-    }
-
-    private static void InvertDeadlockContest(IRibbonSetCommon6 c6, LegalityAnalysis la, bool desiredState)
-    {
-        // RibbonContestStar depends on having all contest ribbons, and having RibbonContestStar requires all.
-        // Since the above logic sets individual ribbons, we must try setting this deadlock pair manually.
-        if (c6.RibbonMasterToughness == desiredState || c6.RibbonContestStar == desiredState)
+        if (pk.IsEgg)
             return;
 
-        la.ResetParse();
-        c6.RibbonMasterToughness = c6.RibbonContestStar = desiredState;
-        bool result = UpdateIsValid(la);
-        if (!result)
-            c6.RibbonMasterToughness = c6.RibbonContestStar = !desiredState;
+        if (pk is IRibbonSetCommon6 c6)
+        {
+            // Medal Deadlock
+            if (pk is ISuperTrain s && history.HasVisitedGen6)
+            {
+                s.SuperTrainBitFlags = RibbonRules.SetSuperTrainSupremelyTrained(s.SuperTrainBitFlags);
+                if (pk.Format == 6) // cleared on 6->7 transfer; only set in Gen6.
+                {
+                    s.SecretSuperTrainingUnlocked = true;
+                    s.SuperTrainSupremelyTrained = true;
+                }
+                c6.RibbonTraining = true;
+            }
+            // Ribbon Deadlock
+            InvertDeadlockContest(c6, true);
+        }
+    }
+
+    /// <summary>
+    /// Sets all valid ribbons to the <see cref="pk"/>.
+    /// </summary>
+    /// <param name="pk">Entity to set ribbons for.</param>
+    public static void RemoveAllValidRibbons(PKM pk) => RemoveAllValidRibbons(new LegalityAnalysis(pk));
+
+    /// <inheritdoc cref="RemoveAllValidRibbons(PKM)"/>
+    public static void RemoveAllValidRibbons(LegalityAnalysis la)
+    {
+        var pk = la.Entity;
+        var enc = la.EncounterMatch;
+        var history = la.Info.EvoChainsAllGens;
+        RemoveAllValidRibbons(pk, enc, history);
+    }
+
+    /// <inheritdoc cref="RemoveAllValidRibbons(PKM)"/>
+    public static void RemoveAllValidRibbons(PKM pk, IEncounterTemplate enc, EvolutionHistory history)
+    {
+        var args = new RibbonVerifierArguments(pk, enc, history);
+        SetAllRibbonState(args, false);
+        FixInvalidRibbons(args);
+    }
+
+    /// <summary>
+    /// Parses the Entity for all ribbons, then fixes any ribbon that was invalid.
+    /// </summary>
+    public static void FixInvalidRibbons(in RibbonVerifierArguments args)
+    {
+        Span<RibbonResult> result = stackalloc RibbonResult[RibbonVerifier.MaxRibbonCount];
+        var count = RibbonVerifier.GetRibbonResults(args, result);
+        foreach (var ribbon in result[..count])
+            ribbon.Fix(args);
+    }
+
+    private static void SetAllRibbonState(in RibbonVerifierArguments args, bool desiredState)
+    {
+        for (RibbonIndex3 r = 0; r < RibbonIndex3.MAX_COUNT; r++)
+            r.Fix(args, desiredState);
+        for (RibbonIndex4 r = 0; r < RibbonIndex4.MAX_COUNT; r++)
+            r.Fix(args, desiredState);
+
+        if (desiredState)
+        {
+            // Skip personality marks (Encounter specific, never required); don't set them.
+            for (RibbonIndex r = 0; r <= RibbonIndex.MasterRank; r++)
+                r.Fix(args, desiredState);
+            for (RibbonIndex r = RibbonIndex.Hisui; r < RibbonIndex.MAX_COUNT; r++)
+                r.Fix(args, desiredState);
+        }
+        else
+        {
+            // Remove Marks too.
+            for (RibbonIndex r = 0; r < RibbonIndex.MAX_COUNT; r++)
+                r.Fix(args, desiredState);
+        }
+    }
+
+    private static void InvertDeadlockContest(IRibbonSetCommon6 c6, bool desiredState)
+    {
+        // Contest Star is a deadlock ribbon with the Master ribbons, as it needs all five Master ribbons to be true.
+        if (desiredState)
+            c6.RibbonContestStar = c6.HasAllContestRibbons();
     }
 }

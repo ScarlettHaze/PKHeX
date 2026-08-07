@@ -1,5 +1,12 @@
-﻿namespace PKHeX.Core;
+using System;
+using System.Collections.Generic;
+using System.IO;
 
+namespace PKHeX.Core;
+
+/// <summary>
+/// Logic for creating file names for <see cref="PKM"/> data.
+/// </summary>
 public static class EntityFileNamer
 {
     /// <summary>
@@ -13,6 +20,12 @@ public static class EntityFileNamer
     /// <param name="pk">Input entity to create a file name for.</param>
     /// <returns>File name for the <see cref="pk"/> data</returns>
     public static string GetName(PKM pk) => Namer.GetName(pk);
+
+    /// <summary>
+    /// A list of all available <see cref="IFileNamer{PKM}"/> objects.
+    /// </summary>
+    /// <remarks>Used for UI display.</remarks>
+    public static readonly List<IFileNamer<PKM>> AvailableNamers = [Namer];
 }
 
 /// <summary>
@@ -20,6 +33,8 @@ public static class EntityFileNamer
 /// </summary>
 public sealed class DefaultEntityNamer : IFileNamer<PKM>
 {
+    public string Name => "Default";
+
     public string GetName(PKM obj)
     {
         if (obj is GBPKM gb)
@@ -29,24 +44,24 @@ public sealed class DefaultEntityNamer : IFileNamer<PKM>
 
     private static string GetRegular(PKM pk)
     {
-        string form = pk.Form > 0 ? $"-{pk.Form:00}" : string.Empty;
-        string star = pk.IsShiny ? " ★" : string.Empty;
-        var chk = pk is ISanityChecksum s ? s.Checksum : PokeCrypto.GetCHK(pk.Data, pk.SIZE_STORED);
-        return $"{pk.Species:000}{form}{star} - {pk.Nickname} - {chk:X4}{pk.EncryptionConstant:X8}";
+        var chk = pk is ISanityChecksum s ? s.Checksum : Checksums.Add16(pk.Data[8..pk.SIZE_STORED]);
+        var form = pk.Form != 0 ? $"-{pk.Form:00}" : string.Empty;
+        var star = pk.IsShiny ? " ★" : string.Empty;
+        return $"{pk.Species:0000}{form}{star} - {pk.Nickname} - {chk:X4}{pk.EncryptionConstant:X8}";
     }
 
     private static string GetGBPKM(GBPKM gb)
     {
-        string form = gb.Form > 0 ? $"-{gb.Form:00}" : string.Empty;
-        string star = gb.IsShiny ? " ★" : string.Empty;
-        var raw = gb switch
+        var checksum = gb switch
         {
-            PK1 pk1 => new PokeList1(pk1).Write(),
-            PK2 pk2 => new PokeList2(pk2).Write(),
-            _ => gb.Data,
+            PK1 pk1 => pk1.GetSingleListChecksum(),
+            PK2 pk2 => pk2.GetSingleListChecksum(),
+            _ => Checksums.CRC16_CCITT(gb.Data),
         };
-        var checksum = Checksums.CRC16_CCITT(raw);
-        return $"{gb.Species:000}{form}{star} - {gb.Nickname} - {checksum:X4}";
+
+        var form = gb.Form != 0 ? $"-{gb.Form:00}" : string.Empty;
+        var star = gb.IsShiny ? " ★" : string.Empty;
+        return $"{gb.Species:0000}{form}{star} - {gb.Nickname} - {checksum:X4}";
     }
 }
 
@@ -56,5 +71,85 @@ public sealed class DefaultEntityNamer : IFileNamer<PKM>
 /// <typeparam name="T">Type that the implementer can create a file name for.</typeparam>
 public interface IFileNamer<in T>
 {
+    /// <summary>
+    /// Human-readable name of the <see cref="IFileNamer{T}"/> implementation.
+    /// </summary>
+    string Name { get; }
+
+    /// <summary>
+    /// Gets the file name (without extension) for the input <see cref="obj"/> data.
+    /// </summary>
     string GetName(T obj);
+}
+
+/// <summary>
+/// Logic for renaming multiple files.
+/// </summary>
+public static class BulkFileRenamer
+{
+    extension<T>(IFileNamer<T> namer) where T : PKM
+    {
+        /// <summary>
+        /// Bulk renames files.
+        /// </summary>
+        /// <param name="dir">Folder to rename files</param>
+        /// <returns>Count of files renamed</returns>
+        public int RenameFiles(string dir)
+        {
+            var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories);
+            return namer.RenameFiles(files);
+        }
+
+        /// <inheritdoc cref="BulkFileRenamer.RenameFiles{T}(PKHeX.Core.IFileNamer{T},string)"/>
+        public int RenameFiles(IEnumerable<string> files)
+        {
+            var count = 0;
+            foreach (var file in files)
+            {
+                if (namer.RenameFile(file))
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Renames a file using the input <see cref="namer"/>.
+        /// </summary>
+        /// <returns>True if renamed.</returns>
+        public bool RenameFile(string file)
+        {
+            var dirName = Path.GetDirectoryName(file);
+            if (dirName is null)
+                return false;
+
+            var fi = new FileInfo(file);
+            if (fi.Attributes.HasFlag(FileAttributes.ReadOnly))
+                return false;
+
+            if (!EntityDetection.IsSizePlausible(fi.Length))
+                return false;
+
+            var data = File.ReadAllBytes(file);
+            var pk = EntityFormat.GetFromBytes(data);
+            if (pk is not T x)
+                return false;
+
+            var name = namer.GetName(x);
+            name += pk.Extension;
+            var newPath = Path.Combine(dirName, name);
+            if (file == newPath)
+                return false;
+
+            try
+            {
+                File.Move(file, newPath, true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.Message);
+                return false;
+            }
+        }
+    }
 }

@@ -1,6 +1,5 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace PKHeX.Core;
 
@@ -8,24 +7,23 @@ namespace PKHeX.Core;
 /// Player item pouches storage
 /// </summary>
 /// <remarks>size=0xBB80 (<see cref="ItemSaveSize"/> items)</remarks>
-public sealed class MyItem8b : MyItem
+public sealed class MyItem8b(SAV8BS sav, Memory<byte> raw) : MyItem(sav, raw)
 {
     public const int ItemSaveSize = 3000;
-
-    public MyItem8b(SAV8BS sav, int offset) : base(sav) => Offset = offset;
+    public const int SIZE = ItemSaveSize * InventoryItem8b.SIZE;
 
     public int GetItemQuantity(ushort itemIndex)
     {
-        var ofs = InventoryPouch8b.GetItemOffset(itemIndex, Offset);
-        var span = Data.AsSpan(ofs, InventoryItem8b.SIZE);
+        var ofs = InventoryPouch8b.GetItemOffset(itemIndex);
+        var span = Data.Slice(ofs, InventoryItem8b.SIZE);
         var item = InventoryItem8b.Read(itemIndex, span);
         return item.Count;
     }
 
     public void SetItemQuantity(ushort itemIndex, int quantity)
     {
-        var ofs = InventoryPouch8b.GetItemOffset(itemIndex, Offset);
-        var span = Data.AsSpan(ofs, InventoryItem8b.SIZE);
+        var ofs = InventoryPouch8b.GetItemOffset(itemIndex);
+        var span = Data.Slice(ofs, InventoryItem8b.SIZE);
         var item = InventoryItem8b.Read(itemIndex, span);
         item.Count = quantity;
         if (!item.IsValidSaveSortNumberCount) // not yet obtained
@@ -36,23 +34,16 @@ public sealed class MyItem8b : MyItem
         item.Write(span);
     }
 
-    public static InventoryType GetType(ushort itemIndex)
-    {
-        var types = new[]
-        {
-            InventoryType.Items, InventoryType.KeyItems, InventoryType.TMHMs, InventoryType.Medicine,
-            InventoryType.Berries, InventoryType.Balls, InventoryType.BattleItems, InventoryType.Treasure,
-        };
-        return Array.Find(types, z => GetLegal(z).Contains(itemIndex));
-    }
+    public static InventoryType GetType(ushort itemIndex) => ItemStorage8BDSP.GetInventoryPouch(itemIndex);
 
     public ushort GetNextSortIndex(InventoryType type)
     {
+        var legal = ItemStorage8BDSP.GetLegal(type);
         ushort max = 0;
-        foreach (var itemID in GetLegal(type))
+        foreach (var itemID in legal)
         {
-            var ofs = InventoryPouch8b.GetItemOffset(itemID, Offset);
-            var span = Data.AsSpan(ofs, InventoryItem8b.SIZE);
+            var ofs = InventoryPouch8b.GetItemOffset(itemID);
+            var span = Data.Slice(ofs, InventoryItem8b.SIZE);
             var item = InventoryItem8b.Read(itemID, span);
             if (item.SortOrder > max)
                 max = item.SortOrder;
@@ -60,84 +51,25 @@ public sealed class MyItem8b : MyItem
         return ++max;
     }
 
-    public override IReadOnlyList<InventoryPouch> Inventory { get => ConvertToPouches(); set => LoadFromPouches(value); }
-
-    private IReadOnlyList<InventoryPouch> ConvertToPouches()
+    public void CleanIllegalSlots()
     {
-        var pouches = new[]
+        var types = ItemStorage8BDSP.ValidTypes;
+        var hashSet = new HashSet<ushort>(Legal.MaxItemID_8b);
+        foreach (var type in types)
         {
-            MakePouch(InventoryType.Items, IsHeldItemLegal),
-            MakePouch(InventoryType.KeyItems),
-            MakePouch(InventoryType.TMHMs, IsHeldItemLegal),
-            MakePouch(InventoryType.Medicine, IsHeldItemLegal),
-            MakePouch(InventoryType.Berries, IsHeldItemLegal),
-            MakePouch(InventoryType.Balls, IsHeldItemLegal),
-            MakePouch(InventoryType.BattleItems, IsHeldItemLegal),
-            MakePouch(InventoryType.Treasure, IsHeldItemLegal),
-        };
-        return pouches.LoadAll(Data);
-    }
+            var items = ItemStorage8BDSP.GetLegal(type);
+            foreach (var item in items)
+                hashSet.Add(item);
+        }
 
-    private void LoadFromPouches(IReadOnlyList<InventoryPouch> value)
-    {
-        value.SaveAll(Data);
-        CleanIllegalSlots();
-    }
-
-    private void CleanIllegalSlots()
-    {
-        var all = new[]
+        // even though there are 3000, just overwrite the ones that people will mess up.
+        var max = (ushort)sav.MaxItemID;
+        for (ushort itemIndex = 0; itemIndex < max; itemIndex++)
         {
-            GetLegal(InventoryType.Items),
-            GetLegal(InventoryType.KeyItems),
-            GetLegal(InventoryType.TMHMs),
-            GetLegal(InventoryType.Medicine),
-            GetLegal(InventoryType.Berries),
-            GetLegal(InventoryType.Balls),
-            GetLegal(InventoryType.BattleItems),
-            GetLegal(InventoryType.Treasure),
-        }.SelectMany(z => z).Distinct();
-
-        var hashSet = new HashSet<ushort>(all);
-        for (ushort i = 0; i < (ushort)SAV.MaxItemID; i++) // even though there are 3000, just overwrite the ones that people will mess up.
-        {
-            if (!hashSet.Contains(i))
-                InventoryItem8b.Clear(Data, InventoryPouch8b.GetItemOffset(i, Offset));
+            if (!hashSet.Contains(itemIndex))
+                DeleteItem(itemIndex);
         }
     }
 
-    private InventoryPouch8b MakePouch(InventoryType type, Func<ushort, bool>? isLegal = null)
-    {
-        ushort[] legal = GetLegal(type);
-        var max = GetMax(type);
-        return new InventoryPouch8b(type, legal, max, Offset, isLegal);
-    }
-
-    public static bool IsHeldItemLegal(ushort item) => !Legal.HeldItems_BS.Contains(item) || Legal.ReleasedHeldItems_8b[item];
-
-    private static int GetMax(InventoryType type) => type switch
-    {
-        InventoryType.Items => 999,
-        InventoryType.KeyItems => 1,
-        InventoryType.TMHMs => 999,
-        InventoryType.Medicine => 999,
-        InventoryType.Berries => 999,
-        InventoryType.Balls => 999,
-        InventoryType.BattleItems => 999,
-        InventoryType.Treasure => 999,
-        _ => throw new ArgumentOutOfRangeException(nameof(type)),
-    };
-
-    private static ushort[] GetLegal(InventoryType type) => type switch
-    {
-        InventoryType.Items => Legal.Pouch_Regular_BS,
-        InventoryType.KeyItems => Legal.Pouch_Key_BS,
-        InventoryType.TMHMs => Legal.Pouch_TMHM_BS,
-        InventoryType.Medicine => Legal.Pouch_Medicine_BS,
-        InventoryType.Berries => Legal.Pouch_Berries_BS,
-        InventoryType.Balls => Legal.Pouch_Ball_BS,
-        InventoryType.BattleItems => Legal.Pouch_Battle_BS,
-        InventoryType.Treasure => Legal.Pouch_Treasure_BS,
-        _ => throw new ArgumentOutOfRangeException(nameof(type)),
-    };
+    private void DeleteItem(ushort itemIndex) => InventoryItem8b.Clear(Data, InventoryPouch8b.GetItemOffset(itemIndex));
 }

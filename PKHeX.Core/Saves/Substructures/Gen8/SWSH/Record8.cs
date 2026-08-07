@@ -1,24 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using System.Diagnostics;
 using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace PKHeX.Core;
 
-public sealed class Record8 : RecordBlock<SAV8SWSH>
+public sealed class Record8(SAV8SWSH sav, SCBlock block) : RecordBlock<SAV8SWSH>(sav, block.Raw)
 {
     public const int RecordCount = 50;
     public const int WattTotal = 22;
-    protected override IReadOnlyList<byte> RecordMax { get; }
-
-    public Record8(SAV8SWSH sav, SCBlock block, IReadOnlyList<byte> maxes) : base(sav, block.Data) =>
-        RecordMax = maxes;
+    protected override ReadOnlySpan<byte> RecordMax => MaxType_SWSH;
 
     public override int GetRecord(int recordID)
     {
-        int ofs = Records.GetOffset(Offset, recordID);
+        int ofs = Records.GetOffset(recordID);
         if (recordID < RecordCount)
-            return ReadInt32LittleEndian(Data.AsSpan(ofs));
+            return ReadInt32LittleEndian(Data[ofs..]);
         Trace.Fail(nameof(recordID));
         return 0;
     }
@@ -32,8 +28,17 @@ public sealed class Record8 : RecordBlock<SAV8SWSH>
         if (value > max)
             value = max;
         if (recordID < RecordCount)
-            WriteInt32LittleEndian(Data.AsSpan(ofs), value);
+            WriteInt32LittleEndian(Data[ofs..], value);
         else
             Trace.Fail(nameof(recordID));
     }
+
+    private static ReadOnlySpan<byte> MaxType_SWSH =>
+    [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
 }

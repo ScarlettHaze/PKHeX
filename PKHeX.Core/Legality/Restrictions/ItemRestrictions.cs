@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 
 using static PKHeX.Core.Legal;
 
@@ -17,37 +16,96 @@ public static class ItemRestrictions
     /// <returns>True if able to be held, false if not</returns>
     public static bool IsHeldItemAllowed(PKM pk)
     {
-        if (pk is PB7 pb7) // no held items in game
-            return pb7.HeldItem == 0;
-        return IsHeldItemAllowed(pk.HeldItem, pk.Format, pk);
+        return IsHeldItemAllowed(pk.HeldItem, pk.Context);
     }
 
     /// <summary>
-    /// Checks if an <see cref="item"/> is available to be held in <see cref="generation"/>.
+    /// Checks if an item is available to be held in <see cref="context"/>.
     /// </summary>
     /// <param name="item">Held Item ID</param>
-    /// <param name="generation">Generation Number</param>
-    /// <param name="pk">Entity context to check</param>
+    /// <param name="context">Entity context to check</param>
     /// <returns>True if able to be held, false if not</returns>
-    public static bool IsHeldItemAllowed(int item, int generation, PKM pk)
+    public static bool IsHeldItemAllowed(int item, EntityContext context)
     {
         if (item == 0)
             return true;
-        var items = GetReleasedHeldItems(generation, pk);
-        return (uint)item < items.Count && items[item];
+        var items = GetReleasedHeldItems(context);
+        return (uint)item < items.Length && items[item];
     }
 
-    private static IReadOnlyList<bool> GetReleasedHeldItems(int generation, PKM pk) => generation switch
+    private static ReadOnlySpan<bool> GetReleasedHeldItems(EntityContext context) => context switch
     {
-        2 => ReleasedHeldItems_2,
-        3 => ReleasedHeldItems_3,
-        4 => ReleasedHeldItems_4,
-        5 => ReleasedHeldItems_5,
-        6 => ReleasedHeldItems_6,
-        7 => ReleasedHeldItems_7,
-        8 when pk is PA8 => Array.Empty<bool>(),
-        8 when pk is PB8 => ReleasedHeldItems_8b,
-        8 => ReleasedHeldItems_8,
-        _ => Array.Empty<bool>(),
+        EntityContext.Gen2 => ReleasedHeldItems_2,
+        EntityContext.Gen3 => ReleasedHeldItems_3,
+        EntityContext.Gen4 => ReleasedHeldItems_4,
+        EntityContext.Gen5 => ReleasedHeldItems_5,
+        EntityContext.Gen6 => ReleasedHeldItems_6,
+        EntityContext.Gen7 => ReleasedHeldItems_7,
+        EntityContext.Gen8 => ReleasedHeldItems_8,
+        EntityContext.Gen9 => ReleasedHeldItems_9,
+
+        EntityContext.Gen8b => ReleasedHeldItems_8b,
+        EntityContext.Gen9a => ReleasedHeldItems_9a,
+        _ => [], // lgp/e, pla, etc
     };
+
+    // Combined bitflags for released held items across generations.
+    private static readonly bool[] ReleasedHeldItems_2 = GetPermitList(MaxItemID_2, HeldItems_GSC);
+    private static readonly bool[] ReleasedHeldItems_3 = GetPermitList(MaxItemID_3_RS, HeldItems_RS, ItemStorage3RS.Unreleased); // Safari Ball
+    private static readonly bool[] ReleasedHeldItems_4 = GetPermitList(MaxItemID_4_HGSS, HeldItems_HGSS, ItemStorage4.Unreleased);
+    private static readonly bool[] ReleasedHeldItems_5 = GetPermitList(MaxItemID_5_B2W2, HeldItems_BW, ItemStorage5.Unreleased);
+    private static readonly bool[] ReleasedHeldItems_6 = GetPermitList(MaxItemID_6_AO, HeldItems_AO, ItemStorage6XY.Unreleased);
+    private static readonly bool[] ReleasedHeldItems_7 = GetPermitList(MaxItemID_7_USUM, HeldItems_USUM, ItemStorage7SM.Unreleased);
+    private static readonly bool[] ReleasedHeldItems_8 = GetPermitList(MaxItemID_8, HeldItems_SWSH, ItemStorage8SWSH.Unreleased, ItemStorage8SWSH.DynamaxCrystalBCAT);
+    private static readonly bool[] ReleasedHeldItems_8b = GetPermitList(MaxItemID_8b, HeldItems_BS, ItemStorage8BDSP.Unreleased, ItemStorage8BDSP.DisallowHeldTreasure);
+    private static readonly bool[] ReleasedHeldItems_9 = GetPermitList(MaxItemID_9, HeldItems_SV, ItemStorage9SV.Unreleased);
+    private static readonly bool[] ReleasedHeldItems_9a = GetPermitList(MaxItemID_9a, HeldItems_ZA, ItemStorage9ZA.Unreleased);
+
+    /// <summary>
+    /// Gets a permit list with the permitted indexes, then un-flags the indexes that are not permitted.
+    /// </summary>
+    /// <param name="max">Maximum index expected to allow</param>
+    /// <param name="allowed">Allowed indexes</param>
+    private static bool[] GetPermitList(int max, ReadOnlySpan<ushort> allowed)
+    {
+        var result = new bool[max + 1];
+        foreach (var index in allowed)
+            result[index] = true;
+        return result;
+    }
+
+    /// <summary>
+    /// Gets a permit list with the permitted indexes, then un-flags the indexes that are not permitted.
+    /// </summary>
+    /// <param name="max">Maximum index expected to allow</param>
+    /// <param name="allowed">Allowed indexes (may have some disallowed)</param>
+    /// <param name="disallow">Disallowed indexes</param>
+    private static bool[] GetPermitList(int max, ReadOnlySpan<ushort> allowed, ReadOnlySpan<ushort> disallow)
+    {
+        var result = GetPermitList(max, allowed);
+        foreach (var index in disallow)
+            result[index] = false;
+        return result;
+    }
+
+    /// <inheritdoc cref="GetPermitList(int,ReadOnlySpan{ushort})"/>
+    private static bool[] GetPermitList(int max, ReadOnlySpan<ushort> allowed, ReadOnlySpan<ushort> disallow1, ReadOnlySpan<ushort> disallow2)
+    {
+        var result = GetPermitList(max, allowed);
+        foreach (var index in disallow1)
+            result[index] = false;
+        foreach (var index in disallow2)
+            result[index] = false;
+        return result;
+    }
+
+    /// <inheritdoc cref="GetPermitList(int,ReadOnlySpan{ushort})"/>
+    private static bool[] GetPermitList(int max, ReadOnlySpan<ushort> allowed, ReadOnlySpan<ushort> disallow1, Range disallow2)
+    {
+        var result = GetPermitList(max, allowed);
+        foreach (var index in disallow1)
+            result[index] = false;
+        result.AsSpan()[disallow2].Clear();
+        return result;
+    }
 }

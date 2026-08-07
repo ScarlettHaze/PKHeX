@@ -1,9 +1,8 @@
 using System.Linq;
 using FluentAssertions;
-using PKHeX.Core;
 using Xunit;
 
-namespace PKHeX.Tests.Legality;
+namespace PKHeX.Core.Tests.Legality;
 
 public static class LearnabilityTests
 {
@@ -19,7 +18,7 @@ public static class LearnabilityTests
     }
 
     [Theory]
-    [InlineData(nameof(Species.Perrserker), "Swift")]
+    //[InlineData(nameof(Species.Perrserker), "Swift")] // added in Z-A DLC
     [InlineData(nameof(Species.Perrserker), "Shock Wave")]
     [InlineData(nameof(Species.Sirfetchd), "False Swipe")]
     [InlineData(nameof(Species.Bulbasaur), "Fly")]
@@ -49,5 +48,14 @@ public static class LearnabilityTests
     {
         var encs = EncounterLearn.GetLearn(species, moves);
         encs.Any().Should().BeTrue($"{species} should be able to learn all moves: {string.Join(", ", moves)}");
+    }
+
+    [Theory]
+    [InlineData(nameof(Species.Unown), "Hidden Power")]
+    [InlineData(nameof(Species.Pikachu), "Hidden Power")]
+    public static void VerifyCanLearnTM(string species, params string[] moves)
+    {
+        var can = EncounterLearn.CanLearn(species, moves);
+        can.Should().BeTrue($"{species} should be able to learn all moves: {string.Join(", ", moves)}");
     }
 }

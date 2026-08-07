@@ -1,8 +1,10 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 // ReSharper disable UnusedAutoPropertyAccessor.Local
 
 namespace PKHeX.Core;
 
+[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.NonPublicProperties)]
 public sealed class G1OverworldSpawner
 {
     private readonly SAV1 SAV;
@@ -14,7 +16,7 @@ public sealed class G1OverworldSpawner
         SAV = sav;
         EventFlags = sav.GetEventFlags();
         SpawnFlags = sav.EventSpawnFlags;
-        bool yellow = SAV.Yellow;
+        bool yellow = SAV.Version == GameVersion.YW;
 
         // FlagPairs set for Red/Blue when appropriate.
         FlagEevee = new FlagPairG1(0x45);
@@ -104,21 +106,9 @@ public sealed class FlagPairG1
     internal FlagPairG1(int hide) => SpawnFlag = hide;
 }
 
-public sealed class FlagPairG1Detail
+public sealed class FlagPairG1Detail(FlagPairG1 Backing, string Name, bool[] Event, bool[] Spawn)
 {
-    private readonly FlagPairG1 Backing;
-    public readonly string Name;
-
-    private readonly bool[] Event;
-    private readonly bool[] Spawn;
-
-    public FlagPairG1Detail(FlagPairG1 back, string name, bool[] ev, bool[] spawn)
-    {
-        Backing = back;
-        Name = name;
-        Event = ev;
-        Spawn = spawn;
-    }
+    public readonly string Name = Name;
 
     public void Invert() => SetState(!IsHidden);
     public void Reset() => SetState(false);

@@ -1,5 +1,6 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
-public interface ITrainerMemories : IMemoryOT, IMemoryHT
-{
-}
+/// <summary>
+/// Combined interface for OT and HT memories.
+/// </summary>
+public interface ITrainerMemories : IMemoryOT, IMemoryHT;

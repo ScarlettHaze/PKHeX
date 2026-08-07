@@ -1,4 +1,6 @@
-﻿namespace PKHeX.Core;
+using System;
+
+namespace PKHeX.Core;
 
 /// <summary> Marks introduced in Generation 8 </summary>
 public interface IRibbonSetMark8
@@ -49,166 +51,135 @@ public interface IRibbonSetMark8
     bool RibbonMarkVigor { get; set; }
     bool RibbonMarkSlump { get; set; }
 
-    bool HasMark();
+    bool HasMarkEncounter8 { get; }
 }
 
-internal static partial class RibbonExtensions
+public interface IRibbonSetRibbons
 {
-    public static bool HasWeatherMark(this IRibbonSetMark8 m)
-    {
-        return m.RibbonMarkCloudy   || m.RibbonMarkRainy || m.RibbonMarkStormy    || m.RibbonMarkSnowy
-               || m.RibbonMarkBlizzard || m.RibbonMarkDry   || m.RibbonMarkSandstorm || m.RibbonMarkMisty;
-    }
+    int RibbonCount { get; }
+}
 
-    private static readonly string[] RibbonSetNamesMark8 =
-    {
-        nameof(IRibbonSetMark8.RibbonMarkLunchtime),
-        nameof(IRibbonSetMark8.RibbonMarkSleepyTime),
-        nameof(IRibbonSetMark8.RibbonMarkDusk),
-        nameof(IRibbonSetMark8.RibbonMarkDawn),
-        nameof(IRibbonSetMark8.RibbonMarkCloudy),
-        nameof(IRibbonSetMark8.RibbonMarkRainy),
-        nameof(IRibbonSetMark8.RibbonMarkStormy),
-        nameof(IRibbonSetMark8.RibbonMarkSnowy),
-        nameof(IRibbonSetMark8.RibbonMarkBlizzard),
-        nameof(IRibbonSetMark8.RibbonMarkDry),
-        nameof(IRibbonSetMark8.RibbonMarkSandstorm),
-        nameof(IRibbonSetMark8.RibbonMarkMisty),
-        nameof(IRibbonSetMark8.RibbonMarkDestiny),
-        nameof(IRibbonSetMark8.RibbonMarkFishing),
-        nameof(IRibbonSetMark8.RibbonMarkCurry),
-        nameof(IRibbonSetMark8.RibbonMarkUncommon),
-        nameof(IRibbonSetMark8.RibbonMarkRare),
-        nameof(IRibbonSetMark8.RibbonMarkRowdy),
-        nameof(IRibbonSetMark8.RibbonMarkAbsentMinded),
-        nameof(IRibbonSetMark8.RibbonMarkJittery),
-        nameof(IRibbonSetMark8.RibbonMarkExcited),
-        nameof(IRibbonSetMark8.RibbonMarkCharismatic),
-        nameof(IRibbonSetMark8.RibbonMarkCalmness),
-        nameof(IRibbonSetMark8.RibbonMarkIntense),
-        nameof(IRibbonSetMark8.RibbonMarkZonedOut),
-        nameof(IRibbonSetMark8.RibbonMarkJoyful),
-        nameof(IRibbonSetMark8.RibbonMarkAngry),
-        nameof(IRibbonSetMark8.RibbonMarkSmiley),
-        nameof(IRibbonSetMark8.RibbonMarkTeary),
-        nameof(IRibbonSetMark8.RibbonMarkUpbeat),
-        nameof(IRibbonSetMark8.RibbonMarkPeeved),
-        nameof(IRibbonSetMark8.RibbonMarkIntellectual),
-        nameof(IRibbonSetMark8.RibbonMarkFerocious),
-        nameof(IRibbonSetMark8.RibbonMarkCrafty),
-        nameof(IRibbonSetMark8.RibbonMarkScowling),
-        nameof(IRibbonSetMark8.RibbonMarkKindly),
-        nameof(IRibbonSetMark8.RibbonMarkFlustered),
-        nameof(IRibbonSetMark8.RibbonMarkPumpedUp),
-        nameof(IRibbonSetMark8.RibbonMarkZeroEnergy),
-        nameof(IRibbonSetMark8.RibbonMarkPrideful),
-        nameof(IRibbonSetMark8.RibbonMarkUnsure),
-        nameof(IRibbonSetMark8.RibbonMarkHumble),
-        nameof(IRibbonSetMark8.RibbonMarkThorny),
-        nameof(IRibbonSetMark8.RibbonMarkVigor),
-        nameof(IRibbonSetMark8.RibbonMarkSlump),
-    };
+public interface IRibbonSetMarks
+{
+    int MarkCount { get; }
+    int RibbonMarkCount { get; }
+}
 
-    internal static bool[] RibbonBits(this IRibbonSetMark8 set)
+public static partial class RibbonExtensions
+{
+    extension(IRibbonSetMark8 m)
     {
-        return new[]
+        public bool HasWeatherMark(out RibbonIndex ribbon)
         {
-            set.RibbonMarkLunchtime,
-            set.RibbonMarkSleepyTime,
-            set.RibbonMarkDusk,
-            set.RibbonMarkDawn,
-            set.RibbonMarkCloudy,
-            set.RibbonMarkRainy,
-            set.RibbonMarkStormy,
-            set.RibbonMarkSnowy,
-            set.RibbonMarkBlizzard,
-            set.RibbonMarkDry,
-            set.RibbonMarkSandstorm,
-            set.RibbonMarkMisty,
-            set.RibbonMarkDestiny,
-            set.RibbonMarkFishing,
-            set.RibbonMarkCurry,
-            set.RibbonMarkUncommon,
-            set.RibbonMarkRare,
-            set.RibbonMarkRowdy,
-            set.RibbonMarkAbsentMinded,
-            set.RibbonMarkJittery,
-            set.RibbonMarkExcited,
-            set.RibbonMarkCharismatic,
-            set.RibbonMarkCalmness,
-            set.RibbonMarkIntense,
-            set.RibbonMarkZonedOut,
-            set.RibbonMarkJoyful,
-            set.RibbonMarkAngry,
-            set.RibbonMarkSmiley,
-            set.RibbonMarkTeary,
-            set.RibbonMarkUpbeat,
-            set.RibbonMarkPeeved,
-            set.RibbonMarkIntellectual,
-            set.RibbonMarkFerocious,
-            set.RibbonMarkCrafty,
-            set.RibbonMarkScowling,
-            set.RibbonMarkKindly,
-            set.RibbonMarkFlustered,
-            set.RibbonMarkPumpedUp,
-            set.RibbonMarkZeroEnergy,
-            set.RibbonMarkPrideful,
-            set.RibbonMarkUnsure,
-            set.RibbonMarkHumble,
-            set.RibbonMarkThorny,
-            set.RibbonMarkVigor,
-            set.RibbonMarkSlump,
+            if (m.RibbonMarkCloudy) { ribbon = RibbonIndex.MarkCloudy; return true; }
+            if (m.RibbonMarkRainy) { ribbon = RibbonIndex.MarkRainy; return true; }
+            if (m.RibbonMarkStormy) { ribbon = RibbonIndex.MarkStormy; return true; }
+            if (m.RibbonMarkSnowy) { ribbon = RibbonIndex.MarkSnowy; return true; }
+            if (m.RibbonMarkBlizzard) { ribbon = RibbonIndex.MarkBlizzard; return true; }
+            if (m.RibbonMarkDry) { ribbon = RibbonIndex.MarkDry; return true; }
+            if (m.RibbonMarkSandstorm) { ribbon = RibbonIndex.MarkSandstorm; return true; }
+            if (m.RibbonMarkMisty) { ribbon = RibbonIndex.MarkMisty; return true; }
+            ribbon = default;
+            return false;
+        }
+
+        public void CopyRibbonSetMark8(IRibbonSetMark8 dest)
+        {
+            dest.RibbonMarkLunchtime = m.RibbonMarkLunchtime;
+            dest.RibbonMarkSleepyTime = m.RibbonMarkSleepyTime;
+            dest.RibbonMarkDusk = m.RibbonMarkDusk;
+            dest.RibbonMarkDawn = m.RibbonMarkDawn;
+            dest.RibbonMarkCloudy = m.RibbonMarkCloudy;
+            dest.RibbonMarkRainy = m.RibbonMarkRainy;
+            dest.RibbonMarkStormy = m.RibbonMarkStormy;
+            dest.RibbonMarkSnowy = m.RibbonMarkSnowy;
+            dest.RibbonMarkBlizzard = m.RibbonMarkBlizzard;
+            dest.RibbonMarkDry = m.RibbonMarkDry;
+            dest.RibbonMarkSandstorm = m.RibbonMarkSandstorm;
+            dest.RibbonMarkMisty = m.RibbonMarkMisty;
+            dest.RibbonMarkDestiny = m.RibbonMarkDestiny;
+            dest.RibbonMarkFishing = m.RibbonMarkFishing;
+            dest.RibbonMarkCurry = m.RibbonMarkCurry;
+            dest.RibbonMarkUncommon = m.RibbonMarkUncommon;
+            dest.RibbonMarkRare = m.RibbonMarkRare;
+            dest.RibbonMarkRowdy = m.RibbonMarkRowdy;
+            dest.RibbonMarkAbsentMinded = m.RibbonMarkAbsentMinded;
+            dest.RibbonMarkJittery = m.RibbonMarkJittery;
+            dest.RibbonMarkExcited = m.RibbonMarkExcited;
+            dest.RibbonMarkCharismatic = m.RibbonMarkCharismatic;
+            dest.RibbonMarkCalmness = m.RibbonMarkCalmness;
+            dest.RibbonMarkIntense = m.RibbonMarkIntense;
+            dest.RibbonMarkZonedOut = m.RibbonMarkZonedOut;
+            dest.RibbonMarkJoyful = m.RibbonMarkJoyful;
+            dest.RibbonMarkAngry = m.RibbonMarkAngry;
+            dest.RibbonMarkSmiley = m.RibbonMarkSmiley;
+            dest.RibbonMarkTeary = m.RibbonMarkTeary;
+            dest.RibbonMarkUpbeat = m.RibbonMarkUpbeat;
+            dest.RibbonMarkPeeved = m.RibbonMarkPeeved;
+            dest.RibbonMarkIntellectual = m.RibbonMarkIntellectual;
+            dest.RibbonMarkFerocious = m.RibbonMarkFerocious;
+            dest.RibbonMarkCrafty = m.RibbonMarkCrafty;
+            dest.RibbonMarkScowling = m.RibbonMarkScowling;
+            dest.RibbonMarkKindly = m.RibbonMarkKindly;
+            dest.RibbonMarkFlustered = m.RibbonMarkFlustered;
+            dest.RibbonMarkPumpedUp = m.RibbonMarkPumpedUp;
+            dest.RibbonMarkZeroEnergy = m.RibbonMarkZeroEnergy;
+            dest.RibbonMarkPrideful = m.RibbonMarkPrideful;
+            dest.RibbonMarkUnsure = m.RibbonMarkUnsure;
+            dest.RibbonMarkHumble = m.RibbonMarkHumble;
+            dest.RibbonMarkThorny = m.RibbonMarkThorny;
+            dest.RibbonMarkVigor = m.RibbonMarkVigor;
+            dest.RibbonMarkSlump = m.RibbonMarkSlump;
+        }
+
+        public bool HasMark8(RibbonIndex index) => index switch
+        {
+            RibbonIndex.MarkLunchtime => m.RibbonMarkLunchtime,
+            RibbonIndex.MarkSleepyTime => m.RibbonMarkSleepyTime,
+            RibbonIndex.MarkDusk => m.RibbonMarkDusk,
+            RibbonIndex.MarkDawn => m.RibbonMarkDawn,
+            RibbonIndex.MarkCloudy => m.RibbonMarkCloudy,
+            RibbonIndex.MarkRainy => m.RibbonMarkRainy,
+            RibbonIndex.MarkStormy => m.RibbonMarkStormy,
+            RibbonIndex.MarkSnowy => m.RibbonMarkSnowy,
+            RibbonIndex.MarkBlizzard => m.RibbonMarkBlizzard,
+            RibbonIndex.MarkDry => m.RibbonMarkDry,
+            RibbonIndex.MarkSandstorm => m.RibbonMarkSandstorm,
+            RibbonIndex.MarkMisty => m.RibbonMarkMisty,
+            RibbonIndex.MarkDestiny => m.RibbonMarkDestiny,
+            RibbonIndex.MarkFishing => m.RibbonMarkFishing,
+            RibbonIndex.MarkCurry => m.RibbonMarkCurry,
+            RibbonIndex.MarkUncommon => m.RibbonMarkUncommon,
+            RibbonIndex.MarkRare => m.RibbonMarkRare,
+            RibbonIndex.MarkRowdy => m.RibbonMarkRowdy,
+            RibbonIndex.MarkAbsentMinded => m.RibbonMarkAbsentMinded,
+            RibbonIndex.MarkJittery => m.RibbonMarkJittery,
+            RibbonIndex.MarkExcited => m.RibbonMarkExcited,
+            RibbonIndex.MarkCharismatic => m.RibbonMarkCharismatic,
+            RibbonIndex.MarkCalmness => m.RibbonMarkCalmness,
+            RibbonIndex.MarkIntense => m.RibbonMarkIntense,
+            RibbonIndex.MarkZonedOut => m.RibbonMarkZonedOut,
+            RibbonIndex.MarkJoyful => m.RibbonMarkJoyful,
+            RibbonIndex.MarkAngry => m.RibbonMarkAngry,
+            RibbonIndex.MarkSmiley => m.RibbonMarkSmiley,
+            RibbonIndex.MarkTeary => m.RibbonMarkTeary,
+            RibbonIndex.MarkUpbeat => m.RibbonMarkUpbeat,
+            RibbonIndex.MarkPeeved => m.RibbonMarkPeeved,
+            RibbonIndex.MarkIntellectual => m.RibbonMarkIntellectual,
+            RibbonIndex.MarkFerocious => m.RibbonMarkFerocious,
+            RibbonIndex.MarkCrafty => m.RibbonMarkCrafty,
+            RibbonIndex.MarkScowling => m.RibbonMarkScowling,
+            RibbonIndex.MarkKindly => m.RibbonMarkKindly,
+            RibbonIndex.MarkFlustered => m.RibbonMarkFlustered,
+            RibbonIndex.MarkPumpedUp => m.RibbonMarkPumpedUp,
+            RibbonIndex.MarkZeroEnergy => m.RibbonMarkZeroEnergy,
+            RibbonIndex.MarkPrideful => m.RibbonMarkPrideful,
+            RibbonIndex.MarkUnsure => m.RibbonMarkUnsure,
+            RibbonIndex.MarkHumble => m.RibbonMarkHumble,
+            RibbonIndex.MarkThorny => m.RibbonMarkThorny,
+            RibbonIndex.MarkVigor => m.RibbonMarkVigor,
+            RibbonIndex.MarkSlump => m.RibbonMarkSlump,
+            _ => throw new ArgumentOutOfRangeException(nameof(index), index, null),
         };
-    }
-
-    internal static string[] RibbonNames(this IRibbonSetMark8 _) => RibbonSetNamesMark8;
-
-    internal static void CopyRibbonSetMark8(this IRibbonSetMark8 set, IRibbonSetMark8 dest)
-    {
-        dest.RibbonMarkLunchtime = set.RibbonMarkLunchtime;
-        dest.RibbonMarkSleepyTime = set.RibbonMarkSleepyTime;
-        dest.RibbonMarkDusk = set.RibbonMarkDusk;
-        dest.RibbonMarkDawn = set.RibbonMarkDawn;
-        dest.RibbonMarkCloudy = set.RibbonMarkCloudy;
-        dest.RibbonMarkRainy = set.RibbonMarkRainy;
-        dest.RibbonMarkStormy = set.RibbonMarkStormy;
-        dest.RibbonMarkSnowy = set.RibbonMarkSnowy;
-        dest.RibbonMarkBlizzard = set.RibbonMarkBlizzard;
-        dest.RibbonMarkDry = set.RibbonMarkDry;
-        dest.RibbonMarkSandstorm = set.RibbonMarkSandstorm;
-        dest.RibbonMarkMisty = set.RibbonMarkMisty;
-        dest.RibbonMarkDestiny = set.RibbonMarkDestiny;
-        dest.RibbonMarkFishing = set.RibbonMarkFishing;
-        dest.RibbonMarkCurry = set.RibbonMarkCurry;
-        dest.RibbonMarkUncommon = set.RibbonMarkUncommon;
-        dest.RibbonMarkRare = set.RibbonMarkRare;
-        dest.RibbonMarkRowdy = set.RibbonMarkRowdy;
-        dest.RibbonMarkAbsentMinded = set.RibbonMarkAbsentMinded;
-        dest.RibbonMarkJittery = set.RibbonMarkJittery;
-        dest.RibbonMarkExcited = set.RibbonMarkExcited;
-        dest.RibbonMarkCharismatic = set.RibbonMarkCharismatic;
-        dest.RibbonMarkCalmness = set.RibbonMarkCalmness;
-        dest.RibbonMarkIntense = set.RibbonMarkIntense;
-        dest.RibbonMarkZonedOut = set.RibbonMarkZonedOut;
-        dest.RibbonMarkJoyful = set.RibbonMarkJoyful;
-        dest.RibbonMarkAngry = set.RibbonMarkAngry;
-        dest.RibbonMarkSmiley = set.RibbonMarkSmiley;
-        dest.RibbonMarkTeary = set.RibbonMarkTeary;
-        dest.RibbonMarkUpbeat = set.RibbonMarkUpbeat;
-        dest.RibbonMarkPeeved = set.RibbonMarkPeeved;
-        dest.RibbonMarkIntellectual = set.RibbonMarkIntellectual;
-        dest.RibbonMarkFerocious = set.RibbonMarkFerocious;
-        dest.RibbonMarkCrafty = set.RibbonMarkCrafty;
-        dest.RibbonMarkScowling = set.RibbonMarkScowling;
-        dest.RibbonMarkKindly = set.RibbonMarkKindly;
-        dest.RibbonMarkFlustered = set.RibbonMarkFlustered;
-        dest.RibbonMarkPumpedUp = set.RibbonMarkPumpedUp;
-        dest.RibbonMarkZeroEnergy = set.RibbonMarkZeroEnergy;
-        dest.RibbonMarkPrideful = set.RibbonMarkPrideful;
-        dest.RibbonMarkUnsure = set.RibbonMarkUnsure;
-        dest.RibbonMarkHumble = set.RibbonMarkHumble;
-        dest.RibbonMarkThorny = set.RibbonMarkThorny;
-        dest.RibbonMarkVigor = set.RibbonMarkVigor;
-        dest.RibbonMarkSlump = set.RibbonMarkSlump;
     }
 }

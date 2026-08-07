@@ -18,7 +18,7 @@ public sealed class PropertyComparer<T> : IComparer<T> where T : class
         propertyDescriptor = property;
         Type comparerForPropertyType = typeof(Comparer<>).MakeGenericType(property.PropertyType);
         var ci = comparerForPropertyType.InvokeMember("Default", BindingFlags.Static | BindingFlags.GetProperty | BindingFlags.Public, null, null, null);
-        comparer = ci == null ? new Comparer(CultureInfo.InvariantCulture) : (IComparer) ci;
+        comparer = ci is null ? new Comparer(CultureInfo.InvariantCulture) : (IComparer) ci;
         SetListSortDirection(direction);
     }
 
@@ -26,8 +26,6 @@ public sealed class PropertyComparer<T> : IComparer<T> where T : class
 
     public int Compare(T? x, T? y)
     {
-        if (x == null) throw new ArgumentNullException(nameof(x));
-        if (y == null) throw new ArgumentNullException(nameof(y));
         return reverse * comparer.Compare(propertyDescriptor.GetValue(x), propertyDescriptor.GetValue(y));
     }
 

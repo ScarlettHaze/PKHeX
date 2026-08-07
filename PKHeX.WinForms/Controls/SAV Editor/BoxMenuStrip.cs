@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 using PKHeX.Core;
@@ -9,7 +9,7 @@ namespace PKHeX.WinForms.Controls;
 public sealed class BoxMenuStrip : ContextMenuStrip
 {
     private readonly SAVEditor SAV;
-    private readonly List<ItemVisibility> CustomItems = new();
+    private readonly List<ItemVisibility> CustomItems = [];
     private readonly BoxManipulator Manipulator;
 
     public BoxMenuStrip(SAVEditor sav)
@@ -35,7 +35,7 @@ public sealed class BoxMenuStrip : ContextMenuStrip
         var name = item.Type.ToString();
         ManipTypeImage.TryGetValue(item.Type, out var img);
         var tsi = new ToolStripMenuItem { Name = $"mnu_{name}", Text = name, Image = img };
-        tsi.Click += (s, e) => Manipulator.Execute(item, sav.CurrentBox, All, Reverse);
+        tsi.Click += (_, _) => Manipulator.Execute(item, sav.CurrentBox, All, Reverse);
         parent.DropDownItems.Add(tsi);
         CustomItems.Add(new ItemVisibility(tsi, item));
     }
@@ -60,6 +60,7 @@ public sealed class BoxMenuStrip : ContextMenuStrip
         [BoxManipType.SortFavorite] = Resources.heart,
         [BoxManipType.SortParty] = Resources.users,
         [BoxManipType.SortShiny] = Resources.showdown,
+        [BoxManipType.SortAlpha] = Resources.alpha,
         [BoxManipType.SortRandom] = Resources.wand,
 
         [BoxManipType.SortUsage] = Resources.heart,
@@ -67,9 +68,13 @@ public sealed class BoxMenuStrip : ContextMenuStrip
         [BoxManipType.SortTraining] = Resources.showdown,
         [BoxManipType.SortOwner] = Resources.users,
         [BoxManipType.SortType] = Resources.main,
+        [BoxManipType.SortTypeTera] = Resources.main,
         [BoxManipType.SortVersion] = Resources.numlohi,
         [BoxManipType.SortBST] = Resources.vallohi,
         [BoxManipType.SortCP] = Resources.vallohi,
+        [BoxManipType.SortScale] = Resources.vallohi,
+        [BoxManipType.SortRibbons] = Resources.valhilo,
+        [BoxManipType.SortMarks] = Resources.valhilo,
         [BoxManipType.SortLegal] = Resources.export,
         [BoxManipType.SortEncounterType] = Resources.about,
 
@@ -85,18 +90,9 @@ public sealed class BoxMenuStrip : ContextMenuStrip
         [BoxManipType.ModifyHeal] = Resources.heart,
     };
 
-    private sealed class ItemVisibility
+    private sealed class ItemVisibility(ToolStripItem toolStripItem, IBoxManip visible)
     {
-        private readonly ToolStripItem Item;
-        private readonly IBoxManip Manip;
-
-        public ItemVisibility(ToolStripItem toolStripItem, IBoxManip visible)
-        {
-            Item = toolStripItem;
-            Manip = visible;
-        }
-
-        public void SetVisibility(SaveFile s) => Item.Visible = Manip.Usable(s);
+        public void SetVisibility(SaveFile s) => toolStripItem.Visible = visible.Usable(s);
     }
 
     public void ToggleVisibility()
@@ -106,12 +102,12 @@ public sealed class BoxMenuStrip : ContextMenuStrip
     }
 
     private static readonly Image[] TopLevelImages =
-    {
+    [
         Resources.nocheck,
         Resources.swapBox,
         Resources.settings,
         Resources.wand,
-    };
+    ];
 
     public void Clear() => Manipulator.Execute(BoxManipType.DeleteAll, SAV.CurrentBox, All);
     public void Sort() => Manipulator.Execute(BoxManipType.SortSpecies, SAV.CurrentBox, All);
@@ -123,17 +119,11 @@ public sealed class BoxMenuStrip : ContextMenuStrip
 /// <summary>
 /// Implementation of a WinForms box manipulator (using MessageBox prompts)
 /// </summary>
-public sealed class BoxManipulatorWF : BoxManipulator
+public sealed class BoxManipulatorWF(SAVEditor editor) : BoxManipulator
 {
-    private readonly SAVEditor Editor;
-    protected override SaveFile SAV => Editor.SAV;
+    protected override SaveFile SAV => editor.SAV;
 
-    public BoxManipulatorWF(SAVEditor editor)
-    {
-        Editor = editor;
-    }
-
-    protected override void FinishBoxManipulation(string message, bool all, int count) => Editor.FinishBoxManipulation(message, all, count);
+    protected override void FinishBoxManipulation(string message, bool all, int count) => editor.FinishBoxManipulation(message, all, count);
 
     protected override bool CanManipulateRegion(int start, int end, string prompt, string fail)
     {

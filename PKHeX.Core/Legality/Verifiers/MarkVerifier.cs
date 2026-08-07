@@ -1,5 +1,5 @@
-﻿using System.Linq;
-using static PKHeX.Core.LegalityCheckStrings;
+using static PKHeX.Core.LegalityCheckResultCode;
+using static PKHeX.Core.RibbonIndex;
 
 namespace PKHeX.Core;
 
@@ -16,27 +16,36 @@ public sealed class MarkVerifier : Verifier
         if (pk is not IRibbonIndex m)
             return;
 
-        if (data.Info.Generation != 8 || (pk.Species == (int)Species.Shedinja && data.EncounterOriginal.Species is not (int)Species.Shedinja)) // Shedinja doesn't copy Ribbons or Marks
+        if (!MarkRules.IsEncounterMarkAllowed(data.EncounterOriginal, data.Entity)) // Shedinja doesn't copy Ribbons or Marks
             VerifyNoMarksPresent(data, m);
         else
             VerifyMarksPresent(data, m);
 
         VerifyAffixedRibbonMark(data, m);
+        if (pk.IsEgg && pk is IRibbonSetAffixed a && a.AffixedRibbon != -1)
+        {
+            // Disallow affixed values on eggs.
+            data.AddLine(GetInvalid(RibbonMarkingAffixed_0, (ushort)(RibbonIndex)a.AffixedRibbon));
+        }
+
+        // Some encounters come with a fixed Mark, and we've not yet checked if it's missing.
+        if (data.EncounterMatch is IEncounterMarkExtra extra && extra.IsMissingExtraMark(pk, out var missing))
+            data.AddLine(GetInvalid(RibbonMarkingMissing_0, (ushort)missing));
     }
 
     private void VerifyNoMarksPresent(LegalityAnalysis data, IRibbonIndex m)
     {
-        for (var x = RibbonIndex.MarkLunchtime; x <= RibbonIndex.MarkSlump; x++)
+        for (var mark = MarkLunchtime; mark <= MarkSlump; mark++)
         {
-            if (m.GetRibbon((int)x))
-                data.AddLine(GetInvalid(string.Format(LRibbonMarkingFInvalid_0, x)));
+            if (m.GetRibbon((int)mark))
+                data.AddLine(GetInvalid(RibbonMarkingInvalid_0, (ushort)mark));
         }
     }
 
     private void VerifyMarksPresent(LegalityAnalysis data, IRibbonIndex m)
     {
         bool hasOne = false;
-        for (var mark = RibbonIndex.MarkLunchtime; mark <= RibbonIndex.MarkSlump; mark++)
+        for (var mark = MarkLunchtime; mark <= MarkSlump; mark++)
         {
             bool has = m.GetRibbon((int)mark);
             if (!has)
@@ -44,14 +53,14 @@ public sealed class MarkVerifier : Verifier
 
             if (hasOne)
             {
-                data.AddLine(GetInvalid(string.Format(LRibbonMarkingFInvalid_0, GetRibbonNameSafe(mark))));
+                data.AddLine(GetInvalid(RibbonMarkingInvalid_0, (ushort)mark));
                 return;
             }
 
-            bool result = IsMarkValid(mark, data.Entity, data.EncounterMatch);
+            bool result = MarkRules.IsEncounterMarkValid(mark, data.Entity, data.EncounterMatch);
             if (!result)
             {
-                data.AddLine(GetInvalid(string.Format(LRibbonMarkingFInvalid_0, GetRibbonNameSafe(mark))));
+                data.AddLine(GetInvalid(RibbonMarkingInvalid_0, (ushort)mark));
                 return;
             }
 
@@ -59,117 +68,53 @@ public sealed class MarkVerifier : Verifier
         }
     }
 
-    private static string GetRibbonNameSafe(RibbonIndex index)
-    {
-        if (index >= RibbonIndex.MAX_COUNT)
-            return index.ToString();
-        var expect = $"Ribbon{index}";
-        return RibbonStrings.GetName(expect);
-    }
-
-    public static bool IsMarkValid(RibbonIndex mark, PKM pk, IEncounterTemplate enc)
-    {
-        return IsMarkAllowedAny(enc) && IsMarkAllowedSpecific(mark, pk, enc);
-    }
-
-    public static bool IsMarkAllowedSpecific(RibbonIndex mark, PKM pk, IEncounterTemplate x) => mark switch
-    {
-        RibbonIndex.MarkCurry when !IsMarkAllowedCurry(pk, x) => false,
-        RibbonIndex.MarkFishing when !IsMarkAllowedFishing(x) => false,
-        RibbonIndex.MarkMisty when pk.Met_Level < EncounterArea8.BoostLevel && EncounterArea8.IsBoostedArea60Fog(pk.Met_Location) => false,
-        RibbonIndex.MarkDestiny => false,
-        >= RibbonIndex.MarkCloudy and <= RibbonIndex.MarkMisty => IsWeatherPermitted(mark, x),
-        _ => true,
-    };
-
-    private static bool IsWeatherPermitted(RibbonIndex mark, IEncounterTemplate enc)
-    {
-        var permit = mark.GetWeather8();
-
-        // Encounter slots check location weather, while static encounters check weather per encounter.
-        return enc switch
-        {
-            EncounterSlot8 w => IsSlotWeatherPermitted(permit, w),
-            EncounterStatic8 s => s.Weather.HasFlag(permit),
-            _ => false,
-        };
-    }
-
-    private static bool IsSlotWeatherPermitted(AreaWeather8 permit, EncounterSlot8 s)
-    {
-        var location = s.Location;
-        // If it's not in the main table, it can only have Normal weather.
-        if (!EncounterArea8.WeatherbyArea.TryGetValue(location, out var weather))
-            weather = AreaWeather8.Normal;
-        if (weather.HasFlag(permit))
-            return true;
-
-        // Valid tree/fishing weathers should have returned with main area weather.
-        if ((s.Weather & (AreaWeather8.Shaking_Trees | AreaWeather8.Fishing)) != 0)
-            return false;
-
-        // Check bleed conditions otherwise.
-        return EncounterArea8.IsWeatherBleedPossible(s.SlotType, permit, location);
-    }
-
-    public static bool IsMarkAllowedAny(IEncounterTemplate enc) => enc.Generation == 8 && enc switch
-    {
-        // Gen 8
-        EncounterSlot8 or EncounterStatic8 {Gift: false, ScriptedNoMarks: false} => true,
-        _ => false,
-    };
-
-    public static bool IsMarkAllowedCurry(PKM pk, IEncounterTemplate enc)
-    {
-        // Curry are only encounter slots, from the hidden table (not symbol). Slots taken from area's current weather(?).
-        if (enc is not EncounterSlot8 {CanEncounterViaCurry: true})
-            return false;
-
-        var ball = pk.Ball;
-        return (uint)(ball - 2) <= 2;
-    }
-
-    public static bool IsMarkAllowedFishing(IEncounterTemplate enc)
-    {
-        return enc is EncounterSlot8 {CanEncounterViaFishing: true};
-    }
-
     private void VerifyAffixedRibbonMark(LegalityAnalysis data, IRibbonIndex m)
     {
         if (m is not IRibbonSetAffixed a)
             return;
 
-        var affix = a.AffixedRibbon;
-        if (affix == -1) // None
+        var affixValue = a.AffixedRibbon;
+        if (affixValue == -1) // None
             return;
 
-        if ((byte)affix > (int)RibbonIndex.MarkSlump) // SW/SH cannot affix anything higher.
+        var affix = (RibbonIndex)affixValue;
+        var evos = data.Info.EvoChainsAllGens;
+        var max = MarkRules.GetMaxAffixValue(evos);
+        if ((sbyte)max == -1 || affix > max)
         {
-            data.AddLine(GetInvalid(string.Format(LRibbonMarkingAffixedF_0, GetRibbonNameSafe((RibbonIndex)affix))));
+            data.AddLine(GetInvalid(RibbonMarkingAffixed_0, (ushort)affix));
             return;
         }
 
         if (m is not PKM pk)
             return;
 
-        if (pk.Species == (int)Species.Shedinja && data.EncounterOriginal.Species is not (int)Species.Shedinja)
+        var enc = data.EncounterOriginal;
+        if (MarkRules.IsEncounterMarkLost(enc, data.Entity))
         {
             VerifyShedinjaAffixed(data, affix, pk, m);
             return;
         }
+
+        // Some games cannot affix ribbon unless it transfers to a game that can affix it.
+        if (enc.Context is EntityContext.Gen8a or EntityContext.Gen9a && pk.Context == enc.Context)
+        {
+            if (!evos.HasVisitedExcept(enc.Context))
+                data.AddLine(GetInvalid(RibbonMarkingAffixed_0, (ushort)affix));
+        }
         EnsureHasRibbon(data, m, affix);
     }
 
-    private void VerifyShedinjaAffixed(LegalityAnalysis data, sbyte affix, PKM pk, IRibbonIndex r)
+    private void VerifyShedinjaAffixed(LegalityAnalysis data, RibbonIndex affix, PKM pk, IRibbonIndex r)
     {
         // Does not copy ribbons or marks, but retains the Affixed Ribbon value.
         // Try re-verifying to see if it could have had the Ribbon/Mark.
 
         var enc = data.EncounterOriginal;
-        if ((byte) affix >= (int) RibbonIndex.MarkLunchtime)
+        if (affix.IsEncounterMark8)
         {
-            if (!IsMarkValid((RibbonIndex)affix, pk, enc))
-                data.AddLine(GetInvalid(string.Format(LRibbonMarkingAffixedF_0, GetRibbonNameSafe((RibbonIndex)affix))));
+            if (!MarkRules.IsEncounterMarkValid(affix, pk, enc))
+                data.AddLine(GetInvalid(RibbonMarkingAffixed_0, (ushort)affix));
             return;
         }
 
@@ -182,17 +127,16 @@ public sealed class MarkVerifier : Verifier
 
         var clone = pk.Clone();
         clone.Species = (int) Species.Nincada;
-        ((IRibbonIndex) clone).SetRibbon(affix);
-        var parse = RibbonVerifier.GetRibbonResults(clone, data.Info.EvoChainsAllGens, enc);
-        var name = GetRibbonNameSafe((RibbonIndex)affix);
-        bool invalid = parse.FirstOrDefault(z => z.Name == name)?.Invalid == true;
-        var severity = invalid ? Severity.Invalid : Severity.Fishy;
-        data.AddLine(Get(string.Format(LRibbonMarkingAffixedF_0, name), severity));
+        var args = new RibbonVerifierArguments(clone, enc, data.Info.EvoChainsAllGens);
+        affix.Fix(args, true);
+        var valid = RibbonVerifier.IsValidExtra(affix, args);
+        var severity = !valid ? Severity.Invalid : Severity.Fishy;
+        data.AddLine(Get(severity, RibbonMarkingAffixed_0, (ushort)affix));
     }
 
     private static bool IsMoveSetEvolvedShedinja(PKM pk)
     {
-        // Check for gen3/4 exclusive moves that are Ninjask glitch only.
+        // Check for Gen3/4 exclusive moves that are Ninjask glitch only.
         if (pk.HasMove((int) Move.Screech))
             return true;
         if (pk.HasMove((int) Move.SwordsDance))
@@ -204,10 +148,10 @@ public sealed class MarkVerifier : Verifier
         return pk.HasMove((int)Move.Agility) && pk is PK8 pk8 && !pk8.GetMoveRecordFlag(12); // TR12 (Agility)
     }
 
-    private void EnsureHasRibbon(LegalityAnalysis data, IRibbonIndex m, sbyte affix)
+    private void EnsureHasRibbon(LegalityAnalysis data, IRibbonIndex m, RibbonIndex affix)
     {
-        var hasRibbon = m.GetRibbonIndex((RibbonIndex) affix);
+        var hasRibbon = m.GetRibbonIndex(affix);
         if (!hasRibbon)
-            data.AddLine(GetInvalid(string.Format(LRibbonMarkingAffixedF_0, GetRibbonNameSafe((RibbonIndex) affix))));
+            data.AddLine(GetInvalid(RibbonMarkingAffixed_0, (ushort)affix));
     }
 }

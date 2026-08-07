@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 using PKHeX.Drawing;
@@ -9,13 +9,13 @@ namespace PKHeX.WinForms.Controls;
 
 public partial class PokedexResearchTask8aPanel : UserControl
 {
-    public int Species { get; private set; }
+    public ushort Species { get; private set; }
     public int ReportedCount { get; private set; }
     public PokedexResearchTask8a Task { get; private set; } = new();
 
-    private string[] TaskDescriptions = Array.Empty<string>();
-    private string[] SpeciesQuests = Array.Empty<string>();
-    private string[] TimeTaskDescriptions = Array.Empty<string>();
+    private string[] TaskDescriptions = [];
+    private string[] SpeciesQuests = [];
+    private string[] TimeTaskDescriptions = [];
 
     private readonly MaskedTextBox[] ThresholdBoxes;
     private readonly bool Loaded;
@@ -24,7 +24,7 @@ public partial class PokedexResearchTask8aPanel : UserControl
     {
         InitializeComponent();
 
-        ThresholdBoxes = new[] { MTB_Threshold1, MTB_Threshold2, MTB_Threshold3, MTB_Threshold4, MTB_Threshold5 };
+        ThresholdBoxes = [MTB_Threshold1, MTB_Threshold2, MTB_Threshold3, MTB_Threshold4, MTB_Threshold5];
         Loaded = true;
     }
 
@@ -43,7 +43,7 @@ public partial class PokedexResearchTask8aPanel : UserControl
         TimeTaskDescriptions = timeTasks;
     }
 
-    public void SetTask(int species, PokedexResearchTask8a task, int reportedLevel)
+    public void SetTask(ushort species, PokedexResearchTask8a task, int reportedLevel)
     {
         Species = species;
         Task = task;

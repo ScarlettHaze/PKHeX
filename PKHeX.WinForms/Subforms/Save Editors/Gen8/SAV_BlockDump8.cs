@@ -1,8 +1,9 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 using PKHeX.Core;
 using static PKHeX.Core.SCBlockUtil;
@@ -13,8 +14,10 @@ public partial class SAV_BlockDump8 : Form
 {
     private readonly ISCBlockArray SAV;
     private readonly SCBlockMetadata Metadata;
+    private readonly ComboItem[] SortedBlockKeys;
 
     private SCBlock CurrentBlock = null!;
+    private string Filter = string.Empty;
 
     public SAV_BlockDump8(ISCBlockArray sav)
     {
@@ -29,7 +32,8 @@ public partial class SAV_BlockDump8 : Form
         Metadata = new SCBlockMetadata(SAV.Accessor, extra, Main.Settings.Advanced.GetExclusionList8());
 
         CB_Key.InitializeBinding();
-        CB_Key.DataSource = Metadata.GetSortedBlockKeyList().ToArray();
+        SortedBlockKeys = Metadata.GetSortedBlockKeyList().ToArray();
+        CB_Key.DataSource = SortedBlockKeys;
 
         CB_TypeToggle.InitializeBinding();
         CB_TypeToggle.DataSource = new[]
@@ -46,12 +50,12 @@ public partial class SAV_BlockDump8 : Form
     {
         var extra = Main.Settings.Advanced.PathBlockKeyList;
         if (extra.Length != 0 && !Directory.Exists(extra))
-            return Array.Empty<string>();
+            return [];
 
         var file = Path.Combine(extra, obj.GetType().Name);
         file = $"{file}.txt";
         if (!File.Exists(file))
-            return Array.Empty<string>();
+            return [];
 
         return File.ReadLines(file);
     }
@@ -76,10 +80,14 @@ public partial class SAV_BlockDump8 : Form
     {
         var block = CurrentBlock;
         L_Detail_R.Text = GetBlockSummary(block);
-        RTB_Hex.Text = string.Join(" ", block.Data.Select(z => $"{z:X2}"));
+
+        var sb = new StringBuilder();
+        foreach (var b in block.Data)
+            sb.Append($"{b:X2} ");
+        RTB_Hex.Text = sb.ToString();
 
         var blockName = Metadata.GetBlockName(block, out var obj);
-        if (blockName != null)
+        if (blockName is not null)
         {
             L_BlockName.Visible = true;
             L_BlockName.Text = blockName;
@@ -92,22 +100,20 @@ public partial class SAV_BlockDump8 : Form
         if (ModifierKeys != Keys.Control)
         {
             // Show a PropertyGrid to edit
-            if (obj != null)
+            if (obj is not null)
             {
                 var props = ReflectUtil.GetPropertiesCanWritePublicDeclared(obj.GetType());
-                if (props.Count() > 1)
+                if (props.Count() > 1 || ModifierKeys == Keys.Shift)
                 {
                     PG_BlockView.Visible = true;
-                    PG_BlockView.SelectedObject = obj;
                     return;
                 }
             }
 
             var o = SCBlockMetadata.GetEditableBlockObject(block);
-            if (o != null)
+            if (o is not null)
             {
                 PG_BlockView.Visible = true;
-                PG_BlockView.SelectedObject = o;
                 return;
             }
         }
@@ -138,7 +144,11 @@ public partial class SAV_BlockDump8 : Form
     private static void ExportAllBlocks(IEnumerable<SCBlock> blocks, string path)
     {
         foreach (var b in blocks.Where(z => z.Data.Length != 0))
-            File.WriteAllBytes(Path.Combine(path, $"{GetBlockFileNameWithoutExtension(b)}.bin"), b.Data);
+        {
+            var fn = $"{GetBlockFileNameWithoutExtension(b)}.bin";
+            var fileName = Path.Combine(path, fn);
+            File.WriteAllBytes(fileName, b.Data);
+        }
     }
 
     private void B_ImportFolder_Click(object sender, EventArgs e)
@@ -160,13 +170,20 @@ public partial class SAV_BlockDump8 : Form
 
     private void B_ExportAllSingle_Click(object sender, EventArgs e)
     {
-        using var sfd = new SaveFileDialog { FileName = "raw.bin" };
+        using var sfd = new SaveFileDialog();
+        sfd.FileName = "raw.bin";
         if (sfd.ShowDialog() != DialogResult.OK)
             return;
 
         var path = sfd.FileName;
-
         var blocks = SAV.Accessor.BlockInfo;
+        var option = GetExportOption();
+
+        ExportAllBlocksAsSingleFile(blocks, path, option);
+    }
+
+    private SCBlockExportOption GetExportOption()
+    {
         var option = SCBlockExportOption.None;
         if (CHK_DataOnly.Checked)
             option |= SCBlockExportOption.DataOnly;
@@ -176,13 +193,14 @@ public partial class SAV_BlockDump8 : Form
             option |= SCBlockExportOption.TypeInfo;
         if (CHK_FakeHeader.Checked)
             option |= SCBlockExportOption.FakeHeader;
-
-        ExportAllBlocksAsSingleFile(blocks, path, option);
+        return option;
     }
 
     private void B_LoadOld_Click(object sender, EventArgs e)
     {
-        using var ofd = new OpenFileDialog { FileName = "main" };
+        using var ofd = new OpenFileDialog();
+        ofd.Title = MessageStrings.MsgFileLoadSaveSelectGame;
+        ofd.FileName = "main";
         if (ofd.ShowDialog() != DialogResult.OK)
             return;
         TB_OldSAV.Text = ofd.FileName;
@@ -192,7 +210,8 @@ public partial class SAV_BlockDump8 : Form
 
     private void B_LoadNew_Click(object sender, EventArgs e)
     {
-        using var ofd = new OpenFileDialog { FileName = "main" };
+        using var ofd = new OpenFileDialog();
+        ofd.FileName = "main";
         if (ofd.ShowDialog() != DialogResult.OK)
             return;
         TB_NewSAV.Text = ofd.FileName;
@@ -212,23 +231,22 @@ public partial class SAV_BlockDump8 : Form
         if (!SaveUtil.IsSizeValid((int)f2.Length))
             return;
 
-        var s1 = SaveUtil.GetVariantSAV(p1);
-        if (s1 is not ISCBlockArray w1)
+        if (!SaveUtil.TryGetSaveFile(p1, out var s1) || s1 is not ISCBlockArray w1)
             return;
-        var s2 = SaveUtil.GetVariantSAV(p2);
-        if (s2 is not ISCBlockArray w2)
+        if (!SaveUtil.TryGetSaveFile(p2, out var s2) || s2 is not ISCBlockArray w2)
             return;
 
         // Get an external source of names if available.
         var extra = GetExtraKeyNames(w1);
         var compare = new SCBlockCompare(w1.Accessor, w2.Accessor, extra);
-        richTextBox1.Lines = compare.Summary().ToArray();
+        richTextBox1.Lines = [.. compare.Summary()];
     }
 
     private static void ExportSelectBlock(SCBlock block)
     {
         var name = GetBlockFileNameWithoutExtension(block);
-        using var sfd = new SaveFileDialog {FileName = $"{name}.bin"};
+        using var sfd = new SaveFileDialog();
+        sfd.FileName = $"{name}.bin";
         if (sfd.ShowDialog() != DialogResult.OK)
             return;
         File.WriteAllBytes(sfd.FileName, block.Data);
@@ -238,7 +256,9 @@ public partial class SAV_BlockDump8 : Form
     {
         var key = blockTarget.Key;
         var data = blockTarget.Data;
-        using var ofd = new OpenFileDialog {FileName = $"{key:X8}.bin"};
+        using var ofd = new OpenFileDialog();
+        ofd.Title = MessageStrings.MsgFileLoadSelectFileBlock;
+        ofd.FileName = $"{key:X8}.bin";
         if (ofd.ShowDialog() != DialogResult.OK)
             return;
 
@@ -251,7 +271,7 @@ public partial class SAV_BlockDump8 : Form
         }
 
         var bytes = File.ReadAllBytes(path);
-        bytes.CopyTo(data, 0);
+        blockTarget.ChangeData(bytes);
     }
 
     private void PG_BlockView_PropertyValueChanged(object s, PropertyValueChangedEventArgs? e)
@@ -267,10 +287,49 @@ public partial class SAV_BlockDump8 : Form
         if (e.KeyCode != Keys.Enter)
             return;
 
-        var text = CB_Key.Text;
-        if (text.Length != 8)
-            return;
+        var text = CB_Key.Text.Trim();
+        if (text.Length == 8)
+        {
+            var hex = (int)Util.GetHexValue(text);
+            if (hex != 0)
+            {
+                if (!string.IsNullOrEmpty(Filter))
+                {
+                    // Clear the filter
+                    CB_Key.DataSource = SortedBlockKeys;
+                    Filter = string.Empty;
+                }
+                // Input is hexadecimal number, select the item -- if it exists.
+                bool exists = SortedBlockKeys.Any(z => z.Value == hex);
+                if (exists)
+                {
+                    CB_Key.SelectedValue = hex;
+                    return;
+                }
+            }
+        }
 
-        CB_Key.SelectedValue = (int)Util.GetHexValue(text);
+        if (CB_Key.SelectedItem is not null && text.Equals(CB_Key.SelectedText))
+            return; // User press enter on selected item
+
+        if (Filter.Equals(text, StringComparison.InvariantCultureIgnoreCase))
+            return; // Filter hasn't changed
+
+        Filter = text;
+        if (string.IsNullOrEmpty(text))
+        {
+            // User has cleared the filter. Restore original metadata
+            CB_Key.DataSource = SortedBlockKeys;
+            CB_Key.SelectedIndex = 0;
+            return;
+        }
+
+        // Filter combo items that contains input text
+        var filtered = Array.FindAll(SortedBlockKeys, x => x.Text.Contains(text, StringComparison.InvariantCultureIgnoreCase));
+        if (filtered.Length == 0)
+            return; // no results
+
+        CB_Key.DataSource = filtered;
+        CB_Key.SelectedIndex = 0;
     }
 }

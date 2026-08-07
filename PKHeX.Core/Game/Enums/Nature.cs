@@ -1,4 +1,4 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
 /// <summary>
 /// Nature ID values for the corresponding English nature name.
@@ -34,15 +34,45 @@ public enum Nature : byte
     Random = 25,
 }
 
+/// <summary>
+/// Extension methods for <see cref="Nature"/>.
+/// </summary>
 public static class NatureUtil
 {
-    public static Nature GetNature(int value) => value switch
+    /// <summary>
+    /// Gets the <see cref="Nature"/> value that corresponds to the provided <see cref="value"/>.
+    /// </summary>
+    /// <remarks>Actual nature values will be unchanged; only out-of-bounds values re-map to <see cref="Nature.Random"/>.</remarks>
+    public static Nature GetNature(Nature value) => value switch
     {
-        < 0 or >= (int)Nature.Random => Nature.Random,
-        _ => (Nature)value,
+        >= Nature.Random => Nature.Random,
+        _ => value,
     };
 
-    public static bool IsFixed(this Nature value) => value is >= 0 and < Nature.Random;
+    extension(Nature value)
+    {
+        /// <summary>
+        /// Checks if the provided <see cref="value"/> is a valid stored <see cref="Nature"/> value.
+        /// </summary>
+        /// <returns>True if value is an actual nature.</returns>
+        public bool IsFixed => value != Nature.Random;
 
-    public static bool IsNeutral(this Nature value) => value.IsFixed() && (byte)value % 6 == 0;
+        /// <summary>
+        /// Checks if the provided <see cref="value"/> is a possible mint nature.
+        /// </summary>
+        /// <remarks>
+        /// The only valid mint natures are those which have a stat amp applied, or neutral nature being Serious.
+        /// </remarks>
+        public bool IsMint => (value.IsFixed && (byte)value % 6 != 0) || value == Nature.Serious;
+
+        /// <summary>
+        /// Checks if the provided <see cref="value"/> is a neutral nature which has no stat amps applied.
+        /// </summary>
+        public bool IsNeutral => value.IsFixed && (byte)value % 6 == 0;
+
+        /// <summary>
+        /// Converts the provided <see cref="value"/> to a neutral nature.
+        /// </summary>
+        public Nature ToNeutral() => (Nature)(value - (Nature)((byte)value % 6));
+    }
 }

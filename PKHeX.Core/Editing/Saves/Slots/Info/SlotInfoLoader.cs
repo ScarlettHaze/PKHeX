@@ -4,6 +4,9 @@ using System.IO;
 
 namespace PKHeX.Core;
 
+/// <summary>
+/// Loads <see cref="SlotCache"/> from sources into a storage collection.
+/// </summary>
 public static class SlotInfoLoader
 {
     // The "Add" method isn't shared for any interface... so we'll just do this twice.
@@ -20,34 +23,34 @@ public static class SlotInfoLoader
         AddExtraData(sav, db);
     }
 
-    public static void AddFromLocalFile(string file, ConcurrentBag<SlotCache> db, ITrainerInfo dest, ICollection<string> validExtensions)
+    public static void AddFromLocalFile(string file, ConcurrentBag<SlotCache> db, ITrainerInfo dest, IReadOnlySet<string> validExtensions)
     {
         var fi = new FileInfo(file);
         if (!validExtensions.Contains(fi.Extension) || !EntityDetection.IsSizePlausible(fi.Length))
             return;
 
         var data = File.ReadAllBytes(file);
-        _ = FileUtil.TryGetPKM(data, out var pk, fi.Extension, dest);
-        if (pk?.Species is not > 0)
+        if (!FileUtil.TryGetPKM(data, out var pk, fi.Extension, dest))
+            return;
+        if (pk.Species is 0)
             return;
 
-        var info = new SlotInfoFile(file);
+        var info = new SlotInfoFileSingle(file);
         var entry = new SlotCache(info, pk);
         db.Add(entry);
     }
 
     private static void AddBoxData(SaveFile sav, ConcurrentBag<SlotCache> db)
     {
-        var bd = sav.BoxData;
         var bc = sav.BoxCount;
         var sc = sav.BoxSlotCount;
-        int ctr = 0;
         for (int box = 0; box < bc; box++)
         {
-            for (int slot = 0; slot < sc; slot++, ctr++)
+            for (int slot = 0; slot < sc; slot++)
             {
-                var ident = new SlotInfoBox(box, slot);
-                var result = new SlotCache(ident, bd[ctr], sav);
+                var ident = new SlotInfoBox(box, slot, sav);
+                var pk = ident.Read(sav);
+                var result = new SlotCache(ident, pk, sav);
                 db.Add(result);
             }
         }
@@ -55,10 +58,12 @@ public static class SlotInfoLoader
 
     private static void AddPartyData(SaveFile sav, ConcurrentBag<SlotCache> db)
     {
-        var pd = sav.PartyData;
-        for (var index = 0; index < pd.Count; index++)
+        var count = sav.PartyCount;
+        if ((uint)count > 6)
+            count = 6;
+        for (var index = 0; index < count; index++)
         {
-            var pk = pd[index];
+            var pk = sav.GetPartySlotAtIndex(index);
             if (pk.Species == 0)
                 continue;
 
@@ -95,34 +100,17 @@ public static class SlotInfoLoader
         AddExtraData(sav, db);
     }
 
-    public static void AddFromLocalFile(string file, ICollection<SlotCache> db, ITrainerInfo dest, ICollection<string> validExtensions)
-    {
-        var fi = new FileInfo(file);
-        if (!validExtensions.Contains(fi.Extension) || !EntityDetection.IsSizePlausible(fi.Length))
-            return;
-
-        var data = File.ReadAllBytes(file);
-        _ = FileUtil.TryGetPKM(data, out var pk, fi.Extension, dest);
-        if (pk?.Species is not > 0)
-            return;
-
-        var info = new SlotInfoFile(file);
-        var entry = new SlotCache(info, pk);
-        db.Add(entry);
-    }
-
     public static void AddBoxData(SaveFile sav, ICollection<SlotCache> db)
     {
-        var bd = sav.BoxData;
         var bc = sav.BoxCount;
         var sc = sav.BoxSlotCount;
-        int ctr = 0;
         for (int box = 0; box < bc; box++)
         {
-            for (int slot = 0; slot < sc; slot++, ctr++)
+            for (int slot = 0; slot < sc; slot++)
             {
-                var ident = new SlotInfoBox(box, slot);
-                var result = new SlotCache(ident, bd[ctr], sav);
+                var ident = new SlotInfoBox(box, slot, sav);
+                var pk = ident.Read(sav);
+                var result = new SlotCache(ident, pk, sav);
                 db.Add(result);
             }
         }
@@ -130,10 +118,10 @@ public static class SlotInfoLoader
 
     public static void AddPartyData(SaveFile sav, ICollection<SlotCache> db)
     {
-        var pd = sav.PartyData;
-        for (var index = 0; index < pd.Count; index++)
+        var count = sav.PartyCount;
+        for (var index = 0; index < count; index++)
         {
-            var pk = pd[index];
+            var pk = sav.GetPartySlotAtIndex(index);
             if (pk.Species == 0)
                 continue;
 

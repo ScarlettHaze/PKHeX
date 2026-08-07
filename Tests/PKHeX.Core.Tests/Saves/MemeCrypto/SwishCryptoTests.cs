@@ -1,8 +1,7 @@
-﻿using FluentAssertions;
-using PKHeX.Core;
+using FluentAssertions;
 using Xunit;
 
-namespace PKHeX.Tests.Saves;
+namespace PKHeX.Core.Tests.Saves;
 
 public class SwishCryptoTests
 {
@@ -15,7 +14,7 @@ public class SwishCryptoTests
     [Fact]
     public void CanMakeBlankSAV8()
     {
-        var sav = SaveUtil.GetBlankSAV(GameVersion.SW, "PKHeX");
+        var sav = BlankSaveFile.Get(SaveFileType.SWSH, GameVersion.SW);
         sav.Should().NotBeNull();
     }
 }

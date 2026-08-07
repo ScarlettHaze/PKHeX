@@ -1,9 +1,60 @@
-﻿namespace PKHeX.Core;
+using System;
 
-internal static class Locations8b
+namespace PKHeX.Core;
+
+/// <summary>
+/// Locations for <see cref="EntityContext.Gen8b"/>.
+/// </summary>
+public static class Locations8b
 {
-    internal static readonly ushort[] Met0 =
+    /// <summary>
+    /// HOME transfer logic maps `0` to `658` to allow the <see cref="Locations.Default8bNone"/> location to be `0` instead.
+    /// </summary>
+    public const ushort TransferPlaceholder0 = 658;
+
+    /// <summary>
+    /// Converts a location from BD/SP format to join the rest of the mainline games. Zero is now (None).
+    /// </summary>
+    /// <param name="loc">Location ID in BD/SP format.</param>
+    /// <returns>Sanitized mainline location ID value.</returns>
+    public static ushort GetLocationMainline(ushort loc) => loc switch
     {
+        0 => TransferPlaceholder0,
+        Locations.Default8bNone => 0,
+        _ => loc,
+    };
+
+    /// <summary>
+    /// Converts a location from mainline format to BD/SP format. Zero is now <see cref="Locations.Default8bNone"/>.
+    /// </summary>
+    /// <param name="loc">Location ID in mainline format.</param>
+    /// <returns>Sanitized BD/SP location ID value.</returns>
+    public static ushort GetLocationLocal(ushort loc) => loc switch
+    {
+        0 => Locations.Default8bNone,
+        TransferPlaceholder0 => 0,
+        _ => loc,
+    };
+
+    /// <summary>
+    /// Checks if the location is a Grand Underground location.
+    /// </summary>
+    /// <param name="location">Location ID to check</param>
+    /// <returns>True if the location is a Grand Underground location</returns>
+    public static bool IsUnderground(ushort location) => location is (>= 508 and <= 617);
+
+    /// <summary>
+    /// Checks if the location is a Great Marsh location.
+    /// </summary>
+    /// <param name="location">Location ID to check</param>
+    /// <returns>True if the location is a Great Marsh location</returns>
+    public static bool IsMarsh(ushort location) => location is (>= 219 and <= 224);
+
+    /// <summary>
+    /// Available location list for the 00000 set of location names.
+    /// </summary>
+    public static ReadOnlySpan<ushort> Met0 =>
+    [
         000, 001, 002, 003, 004, 005, 006, 007, 008, 009,
         010, 011, 012, 013, 014, 015, 016, 017, 018, 019,
         020, 021, 022, 023, 024, 025, 026, 027, 028, 029,
@@ -72,15 +123,23 @@ internal static class Locations8b
 
         // Ramanas Park rooms with lights out
         648, 649, 650, 651, 652, 653, 654, 655, 656, 657,
-    };
+    ];
 
-    internal static readonly ushort[] Met3 =
-    {
-        30001, 30003, 30004, 30005, 30006, 30007, 30009, 30010, 30011, 30012, 30013, 30014, 30015, 30016, 30017, 30018, 30019, 30020, 30022,
-    };
+    /// <summary>
+    /// Available location list for the 30000 set of location names.
+    /// </summary>
+    public static ReadOnlySpan<ushort> Met3 =>
+    [
+               30001,        30003, 30004, 30005, 30006, 30007,        30009,
+        30010, 30011, 30012, 30013, 30014, 30015, 30016, 30017, 30018, 30019,
+        30020,        30022,
+    ];
 
-    internal static readonly ushort[] Met4 =
-    {
+    /// <summary>
+    /// Available location list for the 40000 set of location names.
+    /// </summary>
+    public static ReadOnlySpan<ushort> Met4 =>
+    [
         40001, 40002, 40003, 40005, 40006, 40007, 40008, 40009,
         40010, 40011, 40012, 40013, 40014, 40016, 40017, 40018, 40019,
         40020, 40021, 40022, 40024, 40025, 40026, 40027, 40028, 40029,
@@ -88,8 +147,12 @@ internal static class Locations8b
         40040, 40041, 40042, 40043, 40044, 40045, 40047, 40048, 40049,
         40050, 40051, 40052, 40053, 40055, 40056, 40057, 40058, 40059,
         40060, 40061, 40063, 40064, 40065, 40066, 40067, 40068, 40069,
-        40070, 40071, 40072, 40074, 40075, 40076, 40077,
-    };
+        40070, 40071, 40072, 40074, 40075, 40076, 40077, 40078, 40079,
+        40080, 40081, 40082, 40083, 40084, 40085, 40086,
+    ];
 
-    internal static readonly ushort[] Met6 = {/* XY */ 60001, 60003, /* ORAS */ 60004, /* BDSP */ 60005, 60006, 60007, 60010 };
+    /// <summary>
+    /// Available location list for the 60000 set of location names.
+    /// </summary>
+    public static ReadOnlySpan<ushort> Met6 => [/* X/Y */ 60001, 60003, /* OR/AS */ 60004, /* BD/SP */ 60005, 60006, 60007, 60010];
 }

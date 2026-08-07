@@ -1,5 +1,5 @@
-﻿using System;
-using static PKHeX.Core.LegalityCheckStrings;
+using System;
+using static PKHeX.Core.LegalityCheckResultCode;
 
 namespace PKHeX.Core;
 
@@ -14,31 +14,33 @@ public sealed class IndividualValueVerifier : Verifier
     {
         switch (data.EncounterMatch)
         {
-            case EncounterStatic s:
-                VerifyIVsStatic(data, s);
+            case IPogoSlot s:
+                VerifyIVsGoTransfer(data, s);
                 break;
-            case EncounterSlot w:
-                VerifyIVsSlot(data, w);
+            case IFlawlessIVCount s:
+                VerifyIVsFlawless(data, s);
+                break;
+            case EncounterSlot7:
+                VerifyIVsGen7(data);
                 break;
             case MysteryGift g:
                 VerifyIVsMystery(data, g);
                 break;
+            case EncounterTrade4RanchGift:
+                VerifyIVsRanch4(data);
+                break;
         }
-
         var pk = data.Entity;
-        {
-            var hpiv = pk.IV_HP;
-            if (hpiv < 30 && AllIVsEqual(pk, hpiv))
-                data.AddLine(Get(string.Format(LIVAllEqual_0, hpiv), Severity.Fishy));
-        }
+        var hp = pk.IV_HP;
+        if (hp < 30 && AllIVsEqual(pk, hp))
+            data.AddLine(Get(Severity.Fishy, IVAllEqual_0, (ushort)hp));
     }
 
-    public static bool AllIVsEqual(PKM pk) => AllIVsEqual(pk, pk.IV_HP);
-
-    private static bool AllIVsEqual(PKM pk, int hpiv)
-    {
-        return (pk.IV_ATK == hpiv) && (pk.IV_DEF == hpiv) && (pk.IV_SPA == hpiv) && (pk.IV_SPD == hpiv) && (pk.IV_SPE == hpiv);
-    }
+    private static bool AllIVsEqual(PKM pk, int hp) => pk.IV_ATK == hp
+                                                    && pk.IV_DEF == hp
+                                                    && pk.IV_SPA == hp
+                                                    && pk.IV_SPD == hp
+                                                    && pk.IV_SPE == hp;
 
     private void VerifyIVsMystery(LegalityAnalysis data, MysteryGift g)
     {
@@ -47,75 +49,58 @@ public sealed class IndividualValueVerifier : Verifier
 
         Span<int> IVs = stackalloc int[6];
         g.GetIVs(IVs);
-        var ivflag = IVs.Find(iv => (byte)(iv - 0xFC) < 3);
-        if (ivflag == 0) // Random IVs
+        var ivflag = IVs.IndexOfAny(0xFC, 0xFD, 0xFE);
+        if (ivflag == -1) // Random IVs
         {
             bool valid = Legal.GetIsFixedIVSequenceValidSkipRand(IVs, data.Entity);
             if (!valid)
-                data.AddLine(GetInvalid(LEncGiftIVMismatch));
+                data.AddLine(GetInvalid(EncGiftIVMismatch));
         }
         else
         {
-            int IVCount = ivflag - 0xFB;  // IV2/IV3
+            int IVCount = IVs[ivflag] - 0xFB;  // IV2/IV3
             VerifyIVsFlawless(data, IVCount);
-        }
-    }
-
-    private void VerifyIVsSlot(LegalityAnalysis data, EncounterSlot w)
-    {
-        switch (w.Generation)
-        {
-            case 6: VerifyIVsGen6(data, w); break;
-            case 7: VerifyIVsGen7(data); break;
-            case 8: VerifyIVsGen8(data); break;
         }
     }
 
     private void VerifyIVsGen7(LegalityAnalysis data)
     {
         var pk = data.Entity;
-        if (pk.GO)
-            VerifyIVsGoTransfer(data);
-        else if (pk.AbilityNumber == 4 && !AbilityVerifier.CanAbilityPatch(pk.Format, pk.PersonalInfo.Abilities, pk.Species))
-            VerifyIVsFlawless(data, 2); // Chain of 10 yields 5% HA and 2 flawless IVs
-    }
-
-    private void VerifyIVsGen8(LegalityAnalysis data)
-    {
-        var pk = data.Entity;
-        if (pk.GO)
-            VerifyIVsGoTransfer(data);
-
-        if (data.EncounterMatch is EncounterSlot8a s)
-            VerifyIVsFlawless(data, s.FlawlessIVCount);
-    }
-
-    private void VerifyIVsGen6(LegalityAnalysis data, EncounterSlot w)
-    {
-        if (w is EncounterSlot6XY xy)
+        if (pk.AbilityNumber == 4)
         {
-            if (PersonalTable.XY[data.EncounterMatch.Species].IsEggGroup(15)) // Undiscovered
-                VerifyIVsFlawless(data, 3);
-            if (xy.IsFriendSafari)
-                VerifyIVsFlawless(data, 2);
+            var abilities = (IPersonalAbility12H)pk.PersonalInfo;
+            if (!AbilityVerifier.CanAbilityPatch(pk.Format, abilities, pk.Species))
+                VerifyIVsFlawless(data, 2); // Chain of 10 yields 5% HA and 2 flawless IVs
         }
     }
 
-    private void VerifyIVsFlawless(LegalityAnalysis data, int count)
-    {
-        if (data.Entity.FlawlessIVCount < count)
-            data.AddLine(GetInvalid(string.Format(LIVF_COUNT0_31, count)));
-    }
-
-    private void VerifyIVsStatic(LegalityAnalysis data, EncounterStatic s)
+    private void VerifyIVsFlawless(LegalityAnalysis data, IFlawlessIVCount s)
     {
         if (s.FlawlessIVCount != 0)
             VerifyIVsFlawless(data, s.FlawlessIVCount);
     }
 
-    private void VerifyIVsGoTransfer(LegalityAnalysis data)
+    private void VerifyIVsFlawless(LegalityAnalysis data, int count)
     {
-        if (data.EncounterMatch is EncounterSlotGO g && !g.GetIVsValid(data.Entity))
-            data.AddLine(GetInvalid(LIVNotCorrect));
+        if (data.Entity.FlawlessIVCount < count)
+            data.AddLine(GetInvalid(IVFlawlessCountGEQ_0, (ushort)count));
+    }
+
+    private void VerifyIVsGoTransfer(LegalityAnalysis data, IPogoSlot g)
+    {
+        if (!g.GetIVsValid(data.Entity))
+            data.AddLine(GetInvalid(IVNotCorrect));
+    }
+
+    private void VerifyIVsRanch4(LegalityAnalysis data)
+    {
+        var pk = data.Entity;
+        Span<uint> seeds = stackalloc uint[LCRNG.MaxCountSeedsIV];
+        // IVs are generated via 3 consecutive rand() calls. PID comes from a timer register, thus unrelated.
+        var count = MRNGReversal.GetSeedsIVs(seeds, (uint)pk.IV_HP, (uint)pk.IV_ATK, (uint)pk.IV_DEF, (uint)pk.IV_SPA, (uint)pk.IV_SPD, (uint)pk.IV_SPE);
+        if (count == 0)
+            data.AddLine(GetInvalid(PIDTypeMismatch));
+        else
+            data.Info.PIDIV = new PIDIV(PIDType.Ranch, seeds[0]); // give first seed result even though there will usually be many.
     }
 }

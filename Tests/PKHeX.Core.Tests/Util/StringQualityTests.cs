@@ -1,10 +1,10 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using FluentAssertions;
-using PKHeX.Core;
 using Xunit;
 
-namespace PKHeX.Tests.Util;
+namespace PKHeX.Core.Tests.Util;
 
 public class StringQualityTests
 {
@@ -15,13 +15,37 @@ public class StringQualityTests
     [InlineData("de")]
     [InlineData("fr")]
     [InlineData("es")]
+    [InlineData("es-419")]
     [InlineData("ko")]
-    [InlineData("zh")]
+    [InlineData("zh-Hans")]
+    [InlineData("zh-Hant")]
     public void HasNoDuplicates(string language)
     {
         CheckMetLocations(language);
         CheckItemNames(language);
         CheckMoveNames(language);
+        CheckSpeciesNames(language);
+    }
+
+    /// <summary>
+    /// Checks for duplicate hashes in the species list.
+    /// </summary>
+    /// <remarks>
+    /// Uses hashes instead of strings as other logic uses dictionaries of hashes.
+    /// </remarks>
+    private static void CheckSpeciesNames(string language)
+    {
+        var strings = GameInfo.GetStrings(language);
+        var arr = strings.specieslist;
+        var hashset = new HashSet<int>(arr.Length);
+        var duplicates = new List<string>(0);
+        foreach (var line in arr)
+        {
+            var hash = line.GetHashCode();
+            if (!hashset.Add(hash))
+                duplicates.Add(line);
+        }
+        duplicates.Count.Should().Be(0, "expected no duplicate species strings.");
     }
 
     private static void CheckMoveNames(string language)
@@ -29,7 +53,7 @@ public class StringQualityTests
         var strings = GameInfo.GetStrings(language);
         var arr = strings.movelist;
         var duplicates = GetDuplicates(arr);
-        duplicates.Count.Should().Be(0, "expected no duplicate strings.");
+        duplicates.Count.Should().Be(0, "expected no duplicate move strings.");
     }
 
     private static void CheckItemNames(string language)
@@ -39,10 +63,21 @@ public class StringQualityTests
         var duplicates = GetDuplicates(arr);
         var questionmarks = arr[129];
         duplicates.RemoveAll(z => z == questionmarks);
-        duplicates.Count.Should().Be(0, "expected no duplicate strings.");
+        duplicates.Count.Should().Be(0, "expected no duplicate item strings.");
+
+        var duplicates1 = GetDuplicates(strings.GetItemStrings(EntityContext.Gen1));
+        duplicates1.Count.Should().Be(0, "expected no duplicate Gen1 item strings.");
+        var duplicates2 = GetDuplicates(strings.GetItemStrings(EntityContext.Gen2));
+        duplicates2.Count.Should().Be(0, "expected no duplicate Gen2 item strings.");
+
+        var arr3 = strings.GetItemStrings(EntityContext.Gen3);
+        var duplicates3 = GetDuplicates(arr3);
+        questionmarks = arr3[54];
+        duplicates3.RemoveAll(z => z == questionmarks);
+        duplicates3.Count.Should().Be(0, "expected no duplicate Gen3 item strings.");
     }
 
-    private static List<string> GetDuplicates(string[] arr)
+    private static List<string> GetDuplicates(ReadOnlySpan<string> arr)
     {
         var hs = new HashSet<string>();
         var duplicates = new List<string>();
@@ -61,38 +96,49 @@ public class StringQualityTests
     {
         var strings = GameInfo.GetStrings(language);
 
-        const string prefix = "met";
-        nameof(strings.metBW2_00000).StartsWith(prefix).Should()
-            .BeTrue("expected field name to exist prior to using reflection to fetch all");
-        var metstrings = typeof(GameStrings).GetFields().Where(z => z.Name.StartsWith(prefix));
+        var sets = typeof(GameStrings).GetFields()
+            .Where(z => typeof(ILocationSet).IsAssignableFrom(z.FieldType));
 
         bool iterated = false;
-        var duplicates = new List<string>();
-        foreach (var p in metstrings)
+        var duplicates = new List<string>(0);
+        foreach (var setField in sets)
         {
             iterated = true;
-            var name = p.Name;
-            var value = p.GetValue(strings);
-            Assert.NotNull(value);
-            var arr = (string[])value!;
-            var hs = new HashSet<string>();
+            var name = setField.Name;
+            var group = setField.GetValue(strings) as ILocationSet;
+            Assert.NotNull(group);
 
-            bool sm0 = name == nameof(GameStrings.metSM_00000);
-            for (int i = 0; i < arr.Length; i++)
+            var dict = new Dictionary<string, (int Bank, int Index)>();
+            foreach (var (bank, mem) in group.GetAll())
             {
-                var line = arr[i];
-                if (line.Length == 0)
-                    continue;
-                if (sm0 && i % 2 != 0)
-                    continue;
+                var arr = mem.Span;
+                bool sm0 = bank == 0 && name == nameof(GameStrings.Gen7);
+                for (int index = 0; index < arr.Length; index++)
+                {
+                    var line = arr[index].ToLowerInvariant();
+                    if (line.Length == 0)
+                        continue;
+                    if (sm0 && index % 2 != 0)
+                        continue;
 
-                if (hs.Contains(line))
-                    duplicates.Add($"{name}\t{line}");
-                hs.Add(line);
+                    if (line is "----------" or "－－－－－－－－－－" or "——————" or "")
+                        continue; // don't care
+                    if (dict.TryGetValue(line, out var other))
+                        duplicates.Add($"{name}\t{other.Bank}-{other.Index}\t{bank}-{index}\t{line}");
+                    else
+                        dict.Add(line, (bank, index));
+                }
             }
+
+            if (duplicates.Count == 0)
+                continue;
+
+            // None of the location names displayed to the user should be exactly the same.
+            // This prevents a location list selection from being ambiguous/not what the user intended.
+            var result = string.Join(Environment.NewLine, duplicates);
+            Assert.Fail($"Disallowed - duplicate locations for {name}:{Environment.NewLine}{result}");
         }
 
-        duplicates.Count.Should().Be(0, "expected no duplicate strings.");
         iterated.Should().BeTrue();
     }
 }

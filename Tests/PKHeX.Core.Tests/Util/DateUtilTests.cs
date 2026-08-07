@@ -1,9 +1,8 @@
-﻿using System;
+using System;
 using FluentAssertions;
-using PKHeX.Core;
 using Xunit;
 
-namespace PKHeX.Tests.Util;
+namespace PKHeX.Core.Tests.Util;
 
 public class DateUtilTests
 {
@@ -12,7 +11,7 @@ public class DateUtilTests
     [InlineData(2001, 1, 31)]
     public void RecognizesCorrectDates(int year, int month, int day)
     {
-        Assert.True(DateUtil.IsDateValid(year, month, day), $"Failed to recognize {year}/{month}/{day}");
+        Assert.True(DateUtil.IsValidDate(year, month, day), $"Failed to recognize {year}/{month}/{day}");
     }
 
     [Theory]
@@ -30,13 +29,13 @@ public class DateUtilTests
     [InlineData(2016, 12, 31)]
     public void RecognizesValidMonthBoundaries(int year, int month, int day)
     {
-        Assert.True(DateUtil.IsDateValid(year, month, day), $"Incorrect month boundary for {year}/{month}/{day}");
+        Assert.True(DateUtil.IsValidDate(year, month, day), $"Incorrect month boundary for {year}/{month}/{day}");
     }
 
     [Fact]
     public void RecognizeCorrectLeapYear()
     {
-        Assert.True(DateUtil.IsDateValid(2004, 2, 29));
+        Assert.True(DateUtil.IsValidDate(2004, 2, 29));
     }
 
     [Theory]
@@ -52,7 +51,7 @@ public class DateUtilTests
     [InlineData(uint.MaxValue, uint.MaxValue, uint.MaxValue, false, "Failed with uint.MaxValue, negative")]
     public void CheckDate(uint year, uint month, uint day, bool cmp, string because)
     {
-        var result = DateUtil.IsDateValid(year, month, day);
+        var result = DateUtil.IsValidDate(year, month, day);
         result.Should().Be(cmp, because);
     }
 
@@ -62,8 +61,8 @@ public class DateUtilTests
     [InlineData(2000, 12, 1, 2000, 12, 31, 12)] // rand->+30
     public void CheckRandomDate(int y1, int m1, int d1, int y2, int m2, int d2, int seed)
     {
-        var start = new DateTime(y1, m1, d1);
-        var end = new DateTime(y2, m2, d2);
+        var start = new DateOnly(y1, m1, d1);
+        var end = new DateOnly(y2, m2, d2);
         (start <= end).Should().BeTrue();
 
         var r = new Random(seed);

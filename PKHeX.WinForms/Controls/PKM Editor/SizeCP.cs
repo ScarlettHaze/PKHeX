@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Drawing;
 using System.Globalization;
 using System.Windows.Forms;
 using PKHeX.Core;
@@ -8,9 +9,11 @@ namespace PKHeX.WinForms.Controls;
 public partial class SizeCP : UserControl
 {
     private IScaledSize? ss;
+    private IScaledSize3? scale;
     private IScaledSizeValue? sv;
     private ICombatPower? pk;
     private bool Loading;
+    private bool IsScaleDetailed;
 
     public SizeCP()
     {
@@ -19,14 +22,23 @@ public partial class SizeCP : UserControl
     }
 
     private readonly bool Initialized;
-    private static readonly string[] SizeClass = Enum.GetNames(typeof(PokeSize));
+    private static string[] SizeClass = Enum.GetNames<PokeSize>();
+    private static string[] SizeClassDetailed = Enum.GetNames<PokeSizeDetailed>();
+
+    public static void ResetSizeLocalizations(string language)
+    {
+        SizeClass = WinFormsTranslator.GetEnumTranslation<PokeSize>(language);
+        SizeClassDetailed = WinFormsTranslator.GetEnumTranslation<PokeSizeDetailed>(language);
+    }
 
     public void LoadPKM(PKM entity)
     {
         pk = entity as ICombatPower;
         ss = entity as IScaledSize;
         sv = entity as IScaledSizeValue;
-        if (ss == null)
+        scale = entity as IScaledSize3;
+        IsScaleDetailed = entity is PK9; // not PA9
+        if (ss is null)
             return;
         TryResetStats();
     }
@@ -48,24 +60,28 @@ public partial class SizeCP : UserControl
         pk?.ResetCP();
     }
 
-    private static string GetString(float value) => value.ToString("F6", CultureInfo.InvariantCulture);
+    private static string GetString(float value) => value.ToString("R", CultureInfo.InvariantCulture);
 
     private void LoadStoredValues()
     {
         Loading = true;
-        if (ss != null)
+        if (ss is not null)
         {
             if (NUD_HeightScalar.Focused || NUD_WeightScalar.Focused)
                 CHK_Auto.Focus();
             NUD_HeightScalar.Value = ss.HeightScalar;
             NUD_WeightScalar.Value = ss.WeightScalar;
         }
-        if (sv != null)
+        if (sv is not null)
         {
             TB_HeightAbs.Text = GetString(sv.HeightAbsolute);
             TB_WeightAbs.Text = GetString(sv.WeightAbsolute);
         }
-        if (pk != null)
+        if (scale is not null)
+        {
+            NUD_Scale.Value = scale.Scale;
+        }
+        if (pk is not null)
         {
             MT_CP.Text = Math.Min(65535, pk.Stat_CP).ToString();
         }
@@ -83,47 +99,88 @@ public partial class SizeCP : UserControl
 
     private void MT_CP_TextChanged(object sender, EventArgs e)
     {
-        if (pk != null && int.TryParse(MT_CP.Text, out var cp))
+        if (pk is not null && int.TryParse(MT_CP.Text, out var cp))
             pk.Stat_CP = Math.Min(65535, cp);
     }
 
     private void NUD_HeightScalar_ValueChanged(object sender, EventArgs e)
     {
-        if (ss != null)
+        if (ss is not null)
         {
             if (!Loading)
-                ss.HeightScalar = (byte) NUD_HeightScalar.Value;
-            L_SizeH.Text = SizeClass[(int)PokeSizeUtil.GetSizeRating(ss.HeightScalar)];
+            {
+                ss.HeightScalar = (byte)NUD_HeightScalar.Value;
+                if (ss is PA8) // Height copied to Scale
+                    NUD_Scale.Value = ss.HeightScalar;
+            }
+            var label = L_SizeH;
+            var value = ss.HeightScalar;
+            label.Text = SizeClass[(int)PokeSizeUtil.GetSizeRating(value)];
+            SetLabelColorHeightWeight(label);
         }
 
-        if (!CHK_Auto.Checked || Loading || sv == null)
+        if (!CHK_Auto.Checked || Loading || sv is null)
             return;
         sv.ResetHeight();
         sv.ResetWeight();
         TB_HeightAbs.Text = GetString(sv.HeightAbsolute);
         TB_WeightAbs.Text = GetString(sv.WeightAbsolute);
-        if (sv is PA8 a)
-            a.HeightScalarCopy = a.HeightScalar;
     }
 
     private void NUD_WeightScalar_ValueChanged(object sender, EventArgs e)
     {
-        if (ss != null)
+        if (ss is not null)
         {
             if (!Loading)
-                ss.WeightScalar = (byte) NUD_WeightScalar.Value;
-            L_SizeW.Text = SizeClass[(int)PokeSizeUtil.GetSizeRating(ss.WeightScalar)];
+                ss.WeightScalar = (byte)NUD_WeightScalar.Value;
+            var label = L_SizeW;
+            var value = ss.WeightScalar;
+            label.Text = SizeClass[(int)PokeSizeUtil.GetSizeRating(value)];
+            SetLabelColorHeightWeight(label);
         }
 
-        if (!CHK_Auto.Checked || Loading || sv == null)
+        if (!CHK_Auto.Checked || Loading || sv is null)
             return;
         sv.ResetWeight();
         TB_WeightAbs.Text = GetString(sv.WeightAbsolute);
     }
 
+    private void NUD_Scale_ValueChanged(object sender, EventArgs e)
+    {
+        if (scale is not null)
+        {
+            if (!Loading)
+            {
+                scale.Scale = (byte)NUD_Scale.Value;
+                if (scale is PA8) // Height copied to Scale
+                    NUD_HeightScalar.Value = scale.Scale;
+            }
+
+            var label = L_SizeS;
+            var value = scale.Scale;
+            if (IsScaleDetailed)
+                label.Text = SizeClassDetailed[(int)PokeSizeDetailedUtil.GetSizeRating(value)];
+            else
+                label.Text = SizeClass[(int)PokeSizeUtil.GetSizeRating(value)];
+
+            if (value is 0 or 255) // Tiny or Jumbo Mark possible.
+                label.ForeColor = WinFormsUtil.ColorWarn;
+            else
+                label.ResetForeColor();
+        }
+    }
+
+    private void SetLabelColorHeightWeight(Control label)
+    {
+        if (scale is not null)
+            label.ForeColor = SystemColors.ControlDark; // not indicative of actual size
+        else
+            label.ResetForeColor();
+    }
+
     private void TB_HeightAbs_TextChanged(object sender, EventArgs e)
     {
-        if (sv == null || Loading)
+        if (sv is null || Loading)
             return;
         if (CHK_Auto.Checked)
             sv.ResetHeight();
@@ -133,7 +190,7 @@ public partial class SizeCP : UserControl
 
     private void TB_WeightAbs_TextChanged(object sender, EventArgs e)
     {
-        if (sv == null || Loading)
+        if (sv is null || Loading)
             return;
         if (CHK_Auto.Checked)
             sv.ResetWeight();
@@ -145,8 +202,10 @@ public partial class SizeCP : UserControl
     {
         bool isCP = entity is ICombatPower;
         bool isAbsolute = entity is IScaledSizeValue;
+        bool isScale3 = entity is IScaledSize3;
         MT_CP.Visible = L_CP.Visible = isCP;
         TB_HeightAbs.Visible = TB_WeightAbs.Visible = isAbsolute;
+        L_Scale.Visible = FLP_Scale3.Visible = isScale3;
         FLP_CP.Visible = isCP || isAbsolute; // Auto checkbox
     }
 

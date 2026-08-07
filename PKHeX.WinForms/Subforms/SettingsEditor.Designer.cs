@@ -1,4 +1,7 @@
-﻿namespace PKHeX.WinForms
+using System.Windows.Forms;
+using PKHeX.WinForms.Controls;
+
+namespace PKHeX.WinForms
 {
     partial class SettingsEditor
     {
@@ -13,7 +16,7 @@
         /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
         protected override void Dispose(bool disposing)
         {
-            if (disposing && (components != null))
+            if (disposing && (components is not null))
             {
                 components.Dispose();
             }
@@ -28,84 +31,121 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.FLP_Blank = new System.Windows.Forms.FlowLayoutPanel();
-            this.L_Blank = new System.Windows.Forms.Label();
-            this.CB_Blank = new System.Windows.Forms.ComboBox();
-            this.tabControl1 = new System.Windows.Forms.TabControl();
-            this.B_Reset = new System.Windows.Forms.Button();
-            this.FLP_Blank.SuspendLayout();
-            this.SuspendLayout();
+            FLP_Blank = new FlowLayoutPanel();
+            L_Blank = new Label();
+            CB_Blank = new ComboBox();
+            B_Reset = new Button();
+            LB_Tabs = new ListBox();
+            splitContainer1 = new SplitContainer();
+            PG_Editor = new PropertyGrid();
+            FLP_Blank.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)splitContainer1).BeginInit();
+            splitContainer1.Panel1.SuspendLayout();
+            splitContainer1.Panel2.SuspendLayout();
+            splitContainer1.SuspendLayout();
+            SuspendLayout();
             // 
             // FLP_Blank
             // 
-            this.FLP_Blank.Controls.Add(this.L_Blank);
-            this.FLP_Blank.Controls.Add(this.CB_Blank);
-            this.FLP_Blank.Dock = System.Windows.Forms.DockStyle.Top;
-            this.FLP_Blank.Location = new System.Drawing.Point(0, 0);
-            this.FLP_Blank.Name = "FLP_Blank";
-            this.FLP_Blank.Size = new System.Drawing.Size(334, 27);
-            this.FLP_Blank.TabIndex = 1;
+            FLP_Blank.Controls.Add(L_Blank);
+            FLP_Blank.Controls.Add(CB_Blank);
+            FLP_Blank.Dock = DockStyle.Top;
+            FLP_Blank.Location = new System.Drawing.Point(0, 0);
+            FLP_Blank.Name = "FLP_Blank";
+            FLP_Blank.Size = new System.Drawing.Size(584, 27);
+            FLP_Blank.TabIndex = 1;
             // 
             // L_Blank
             // 
-            this.L_Blank.AutoSize = true;
-            this.L_Blank.Location = new System.Drawing.Point(3, 0);
-            this.L_Blank.Name = "L_Blank";
-            this.L_Blank.Padding = new System.Windows.Forms.Padding(0, 6, 0, 0);
-            this.L_Blank.Size = new System.Drawing.Size(103, 19);
-            this.L_Blank.TabIndex = 0;
-            this.L_Blank.Text = "Blank Save Version:";
+            L_Blank.AutoSize = true;
+            L_Blank.Location = new System.Drawing.Point(3, 0);
+            L_Blank.Name = "L_Blank";
+            L_Blank.Padding = new Padding(0, 6, 0, 0);
+            L_Blank.Size = new System.Drawing.Size(119, 23);
+            L_Blank.TabIndex = 0;
+            L_Blank.Text = "Blank Save Version:";
             // 
             // CB_Blank
             // 
-            this.CB_Blank.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.CB_Blank.FormattingEnabled = true;
-            this.CB_Blank.Location = new System.Drawing.Point(112, 3);
-            this.CB_Blank.Name = "CB_Blank";
-            this.CB_Blank.Size = new System.Drawing.Size(137, 21);
-            this.CB_Blank.TabIndex = 1;
-            // 
-            // tabControl1
-            // 
-            this.tabControl1.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.tabControl1.Location = new System.Drawing.Point(0, 27);
-            this.tabControl1.Multiline = true;
-            this.tabControl1.Name = "tabControl1";
-            this.tabControl1.SelectedIndex = 0;
-            this.tabControl1.Size = new System.Drawing.Size(334, 284);
-            this.tabControl1.TabIndex = 3;
+            CB_Blank.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+            CB_Blank.AutoCompleteSource = AutoCompleteSource.ListItems;
+            CB_Blank.FormattingEnabled = true;
+            CB_Blank.Location = new System.Drawing.Point(128, 3);
+            CB_Blank.Name = "CB_Blank";
+            CB_Blank.Size = new System.Drawing.Size(180, 25);
+            CB_Blank.TabIndex = 1;
             // 
             // B_Reset
             // 
-            this.B_Reset.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.B_Reset.Location = new System.Drawing.Point(256, 2);
-            this.B_Reset.Name = "B_Reset";
-            this.B_Reset.Size = new System.Drawing.Size(75, 23);
-            this.B_Reset.TabIndex = 4;
-            this.B_Reset.Text = "Reset All";
-            this.B_Reset.UseVisualStyleBackColor = true;
+            B_Reset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            B_Reset.Location = new System.Drawing.Point(506, 2);
+            B_Reset.Name = "B_Reset";
+            B_Reset.Size = new System.Drawing.Size(75, 23);
+            B_Reset.TabIndex = 4;
+            B_Reset.Text = "Reset All";
+            B_Reset.UseVisualStyleBackColor = true;
+            // 
+            // LB_Tabs
+            // 
+            LB_Tabs.Dock = DockStyle.Fill;
+            LB_Tabs.FormattingEnabled = true;
+            LB_Tabs.Location = new System.Drawing.Point(0, 0);
+            LB_Tabs.Name = "LB_Tabs";
+            LB_Tabs.Size = new System.Drawing.Size(194, 354);
+            LB_Tabs.TabIndex = 5;
+            LB_Tabs.SelectedIndexChanged += LB_Tabs_SelectedIndexChanged;
+            // 
+            // splitContainer1
+            // 
+            splitContainer1.Dock = DockStyle.Fill;
+            splitContainer1.FixedPanel = FixedPanel.Panel1;
+            splitContainer1.Location = new System.Drawing.Point(0, 27);
+            splitContainer1.Name = "splitContainer1";
+            // 
+            // splitContainer1.Panel1
+            // 
+            splitContainer1.Panel1.Controls.Add(LB_Tabs);
+            // 
+            // splitContainer1.Panel2
+            // 
+            splitContainer1.Panel2.Controls.Add(PG_Editor);
+            splitContainer1.Size = new System.Drawing.Size(584, 354);
+            splitContainer1.SplitterDistance = 194;
+            splitContainer1.TabIndex = 6;
+            // 
+            // PG_Editor
+            // 
+            PG_Editor.BackColor = System.Drawing.SystemColors.Control;
+            PG_Editor.Dock = DockStyle.Fill;
+            PG_Editor.Location = new System.Drawing.Point(0, 0);
+            PG_Editor.Name = "PG_Editor";
+            PG_Editor.Size = new System.Drawing.Size(386, 354);
+            PG_Editor.TabIndex = 0;
             // 
             // SettingsEditor
             // 
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
-            this.AutoSize = true;
-            this.ClientSize = new System.Drawing.Size(334, 311);
-            this.Controls.Add(this.B_Reset);
-            this.Controls.Add(this.tabControl1);
-            this.Controls.Add(this.FLP_Blank);
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedToolWindow;
-            this.Icon = global::PKHeX.WinForms.Properties.Resources.Icon;
-            this.KeyPreview = true;
-            this.MaximizeBox = false;
-            this.MinimizeBox = false;
-            this.Name = "SettingsEditor";
-            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
-            this.Text = "Settings";
-            this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.SettingsEditor_KeyDown);
-            this.FLP_Blank.ResumeLayout(false);
-            this.FLP_Blank.PerformLayout();
-            this.ResumeLayout(false);
-
+            AutoScaleMode = AutoScaleMode.Inherit;
+            ClientSize = new System.Drawing.Size(584, 381);
+            Controls.Add(splitContainer1);
+            Controls.Add(B_Reset);
+            Controls.Add(FLP_Blank);
+            FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            Icon = Properties.Resources.Icon;
+            KeyPreview = true;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            MinimumSize = new System.Drawing.Size(510, 375);
+            Name = "SettingsEditor";
+            StartPosition = FormStartPosition.CenterParent;
+            Text = "Settings";
+            KeyDown += SettingsEditor_KeyDown;
+            FLP_Blank.ResumeLayout(false);
+            FLP_Blank.PerformLayout();
+            splitContainer1.Panel1.ResumeLayout(false);
+            splitContainer1.Panel2.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)splitContainer1).EndInit();
+            splitContainer1.ResumeLayout(false);
+            ResumeLayout(false);
         }
 
         #endregion
@@ -113,7 +153,9 @@
         private System.Windows.Forms.FlowLayoutPanel FLP_Blank;
         private System.Windows.Forms.Label L_Blank;
         private System.Windows.Forms.ComboBox CB_Blank;
-        private System.Windows.Forms.TabControl tabControl1;
         private System.Windows.Forms.Button B_Reset;
+        private ListBox LB_Tabs;
+        private SplitContainer splitContainer1;
+        private PropertyGrid PG_Editor;
     }
 }

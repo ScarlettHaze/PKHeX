@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+using System;
 using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace PKHeX.Core;
@@ -10,8 +9,9 @@ namespace PKHeX.Core;
 // u32 slot;
 // u32 num_copies;
 // u8  reserved[0x1C];
-// u8  ek7[0x104];
-// u8  dex_data[0x60];
+// u8  ek7[0x104]; -- starts at 0x30
+// u8  alignment[0xC];
+// u8  dex_data[0x60]; -- starts at 0x140
 // u16 crc16
 // sizeof(QR7) == 0x1A2
 
@@ -20,34 +20,34 @@ namespace PKHeX.Core;
 /// </summary>
 public static class QR7
 {
-    private static readonly HashSet<int> GenderDifferences = new()
-    {
-        003, 012, 019, 020, 025, 026, 041, 042, 044, 045,
-        064, 065, 084, 085, 097, 111, 112, 118, 119, 123,
-        129, 130, 154, 165, 166, 178, 185, 186, 190, 194,
-        195, 198, 202, 203, 207, 208, 212, 214, 215, 217,
-        221, 224, 229, 232, 255, 256, 257, 267, 269, 272,
-        274, 275, 307, 308, 315, 316, 317, 322, 323, 332,
-        350, 369, 396, 397, 398, 399, 400, 401, 402, 403,
-        404, 405, 407, 415, 417, 418, 419, 424, 443, 444,
-        445, 449, 450, 453, 454, 456, 457, 459, 460, 461,
-        464, 465, 473, 521, 592, 593, 668, 678,
-    };
+    public const int SIZE = 0x1A2;
 
-    private static readonly byte[] BaseQR =
-    {
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xD2, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    };
+    private static ReadOnlySpan<byte> GenderDifferences =>
+    [
+        0x08, 0x10, 0x18, 0x06, 0x00, 0x36, 0x00, 0x00, 0x03, 0x00,
+        0x30, 0x00, 0x02, 0x80, 0xC1, 0x08, 0x06, 0x00, 0x00, 0x04,
+        0x60, 0x00, 0x04, 0x46, 0x4C, 0x8C, 0xD1, 0x22, 0x21, 0x01,
+        0x00, 0x80, 0x03, 0x28, 0x0D, 0x00, 0x00, 0x00, 0x18, 0x38,
+        0x0C, 0x10, 0x00, 0x40, 0x00, 0x00, 0x02, 0x00, 0x00, 0xF0,
+        0xBF, 0x80, 0x0E, 0x01, 0x00, 0x38, 0x66, 0x3B, 0x03, 0x02,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x10, 0x40,
+    ];
 
-    private static byte[] GetRawQR(int species, int form, bool shiny, int gender)
+    private static bool IsGenderDifferent(ushort species)
     {
-        var basedata = (byte[])BaseQR.Clone();
-        WriteUInt16LittleEndian(basedata.AsSpan(0x28), (ushort)species);
+        var index = species >> 3;
+        var table = GenderDifferences;
+        if (index >= table.Length)
+            return false;
+        return (table[index] & (1 << (species & 7))) != 0;
+    }
+
+    private static void SetDexData(Span<byte> dest, ushort species, byte form, bool shiny, byte gender)
+    {
+        dest[..6].Fill(0xFF);
+        WriteUInt16LittleEndian(dest[0x28..], species);
 
         var pi = PersonalTable.USUM.GetFormEntry(species, form);
         bool biGender = false;
@@ -58,41 +58,38 @@ public static class QR7
         else if (pi.Genderless)
             gender = 2;
         else
-            biGender = !GenderDifferences.Contains(species);
+            biGender = !IsGenderDifferent(species);
 
-        basedata[0x2A] = (byte)form;
-        basedata[0x2B] = (byte)gender;
-        basedata[0x2C] = shiny ? (byte)1 : (byte)0;
-        basedata[0x2D] = biGender ? (byte)1 : (byte)0;
-        return basedata;
+        dest[0x2A] = form;
+        dest[0x2B] = gender;
+        dest[0x2C] = shiny ? (byte)1 : (byte)0;
+        dest[0x2D] = biGender ? (byte)1 : (byte)0;
     }
 
     public static byte[] GenerateQRData(PK7 pk7, int box = 0, int slot = 0, int num_copies = 1)
     {
-        if (box > 31)
-            box = 31;
-        if (slot > 29)
-            slot = 29;
-        if (box < 0)
-            box = 0;
-        if (slot < 0)
-            slot = 0;
-        if (num_copies < 0)
-            num_copies = 1;
+        byte[] data = new byte[SIZE];
+        SetQRData(pk7, data, box, slot, num_copies);
+        return data;
+    }
 
-        byte[] data = new byte[0x1A2];
-        var span = data.AsSpan();
+    public static void SetQRData(PK7 pk7, Span<byte> span, int box = 0, int slot = 0, int num_copies = 1)
+    {
+        box = Math.Clamp(box, 0, 31);
+        slot = Math.Clamp(slot, 0, 29);
+        num_copies = Math.Min(num_copies, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(span.Length, SIZE);
+
         WriteUInt32LittleEndian(span, 0x454B4F50); // POKE magic
-        data[0x4] = 0xFF; // QR Type
+        span[0x4] = 0xFF; // QR Type
         WriteInt32LittleEndian(span[0x08..], box);
         WriteInt32LittleEndian(span[0x0C..], slot);
         WriteInt32LittleEndian(span[0x10..], num_copies); // No need to check max num_copies, payload parser handles it on-console.
 
-        pk7.EncryptedPartyData.CopyTo(span[0x30..]); // Copy in pokemon data
-        GetRawQR(pk7.Species, pk7.Form, pk7.IsShiny, pk7.Gender).CopyTo(span[0x140..]);
+        pk7.WriteEncryptedDataParty(span[0x30..]); // Copy in Pokémon data
+        SetDexData(span[0x140..], pk7.Species, pk7.Form, pk7.IsShiny, pk7.Gender);
 
         var chk = Checksums.CRC16Invert(span[..0x1A0]);
         WriteUInt16LittleEndian(span[0x1A0..], chk);
-        return data;
     }
 }

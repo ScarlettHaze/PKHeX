@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace PKHeX.Core;
@@ -54,18 +55,10 @@ public static class SlotPointerUtil
         }
     }
 
-    public static void UpdateRepointFrom(int newIndex, int oldIndex, params IList<int>[] slotPointers)
+    public static void UpdateRepointFrom(int newIndex, int oldIndex, Span<int> slotPointers)
     {
-        foreach (var p in slotPointers)
-        {
-            for (int s = 0; s < p.Count; s++)
-            {
-                if (p[s] != oldIndex)
-                    continue;
-                p[s] = newIndex;
-                break;
-            }
-        }
+        // Don't return on first match; assume multiple pointers can point to the same slot
+        slotPointers.Replace(oldIndex, newIndex);
     }
 
     public static void UpdateMove(int bMove, int cMove, int slotsPerBox, params IList<int>[] ptrset)

@@ -1,321 +1,167 @@
-﻿using System;
-
-using static PKHeX.Core.Legal;
+using System;
 
 namespace PKHeX.Core;
 
+/// <summary>
+/// Logic to create an <see cref="EvolutionHistory"/>.
+/// </summary>
 public static class EvolutionChain
 {
-    internal static EvolutionHistory GetEvolutionChainsAllGens(PKM pk, IEncounterTemplate enc)
+    /// <summary>
+    /// Build an <see cref="EvolutionHistory"/> for the given <paramref name="pk"/> and <paramref name="enc"/>.
+    /// </summary>
+    /// <param name="pk">Entity to search for.</param>
+    /// <param name="enc">Evolution details.</param>
+    public static EvolutionHistory GetEvolutionChainsAllGens(PKM pk, IEncounterTemplate enc)
     {
-        var chain = GetEvolutionChain(pk, enc, pk.Species, (byte)pk.CurrentLevel);
-        if (chain.Length == 0 || pk.IsEgg || enc is EncounterInvalid)
-            return GetChainSingle(pk, chain);
+        var min = GetMinLevel(pk, enc);
+        var origin = new EvolutionOrigin(pk.Species, enc.Context, enc.Generation, min, pk.CurrentLevel);
+        if (!pk.IsEgg && enc is not EncounterInvalid)
+            return GetEvolutionChainsSearch(pk, origin, enc.Context, enc.Species);
 
-        return GetChainAll(pk, enc, chain);
+        return GetEvolutionChainsSearch(pk, origin, pk.Context, enc.Species);
     }
 
-    private static EvolutionHistory GetChainSingle(PKM pk, EvoCriteria[] fullChain)
+    /// <summary>
+    /// Build an <see cref="EvolutionHistory"/> for the given <paramref name="pk"/> and <paramref name="enc"/>.
+    /// </summary>
+    /// <param name="pk">Entity to search for.</param>
+    /// <param name="enc">Evolution details.</param>
+    /// <param name="context">Starting (original) context of the <paramref name="pk"/>.</param>
+    /// <param name="encSpecies">Encountered as species. If not known (search for all), set to 0.</param>
+    public static EvolutionHistory GetEvolutionChainsSearch(PKM pk, EvolutionOrigin enc, EntityContext context, ushort encSpecies = 0)
     {
-        var count = Math.Max(2, pk.Format) + 1;
-        return new EvolutionHistory(fullChain, count)
-        {
-            [pk.Format] = fullChain,
-        };
+        Span<EvoCriteria> chain = stackalloc EvoCriteria[EvolutionTree.MaxEvolutions];
+        return EvolutionChainsSearch(pk, enc, context, encSpecies, chain);
     }
 
-    private static EvolutionHistory GetChainAll(PKM pk, IEncounterTemplate enc, EvoCriteria[] fullChain)
+    private static byte GetMinLevel(PKM pk, IEncounterTemplate enc) => enc.Generation switch
     {
-        int maxgen = ParseSettings.AllowGen1Tradeback && pk.Context == EntityContext.Gen1 ? 2 : pk.Format;
-        var GensEvoChains = new EvolutionHistory(fullChain, maxgen + 1);
-
-        var head = 0; // inlined FIFO queue indexing
-        var mostEvolved = fullChain[head++];
-
-        var lvl = (byte)pk.CurrentLevel;
-        var maxLevel = lvl;
-
-        // Iterate generations backwards
-        // Maximum level of an earlier generation (GenX) will never be greater than a later generation (GenX+Y).
-        int mingen = enc.Generation;
-        if (mingen is 1 or 2)
-            mingen = GBRestrictions.GetTradebackStatusInitial(pk) == PotentialGBOrigin.Gen2Only ? 2 : 1;
-
-        bool noxfrDecremented = true;
-        for (int g = GensEvoChains.Length - 1; g >= mingen; g--)
-        {
-            if (g == 6 && enc.Generation < 3)
-                g = 2; // skip over 6543 as it never existed in these.
-
-            if (g <= 4 && pk.Format > 2 && pk.Format > g && !pk.HasOriginalMetLocation)
-            {
-                // Met location was lost at this point but it also means the pokemon existed in generations 1 to 4 with maximum level equals to met level
-                var met = pk.Met_Level;
-                if (lvl > pk.Met_Level)
-                    lvl = (byte)met;
-            }
-
-            int maxspeciesgen = g == 2 && pk.VC1 ? MaxSpeciesID_1 : GetMaxSpeciesOrigin(g);
-
-            // Remove future gen evolutions after a few special considerations:
-            // If the pokemon origin is illegal (e.g. Gen3 Infernape) the list will be emptied -- species lineage did not exist at any evolution stage.
-            while (mostEvolved.Species > maxspeciesgen)
-            {
-                if (head >= fullChain.Length)
-                {
-                    if (g <= 2 && pk.VC1)
-                        GensEvoChains.Invalidate(); // invalidate here since we haven't reached the regular invalidation
-                    return GensEvoChains;
-                }
-                if (mostEvolved.RequiresLvlUp)
-                    ReviseMaxLevel(ref lvl, pk, g, maxLevel);
-
-                mostEvolved = fullChain[head++];
-            }
-
-            // Alolan form evolutions, remove from gens 1-6 chains
-            if (g < 7 && HasAlolanForm(mostEvolved.Species) && pk.Format >= 7 && mostEvolved.Form > 0)
-            {
-                if (head >= fullChain.Length)
-                    return GensEvoChains;
-                mostEvolved = fullChain[head++];
-            }
-
-            var tmp = GetEvolutionChain(pk, enc, mostEvolved.Species, lvl);
-            if (tmp.Length == 0)
-                continue;
-
-            GensEvoChains[g] = tmp;
-            if (g == 1)
-            {
-                CleanGen1(pk, enc, GensEvoChains);
-                continue;
-            }
-
-            if (g >= 3 && !pk.HasOriginalMetLocation && g >= enc.Generation && noxfrDecremented)
-            {
-                bool isTransferred = HasMetLocationUpdatedTransfer(enc.Generation, g);
-                if (!isTransferred)
-                    continue;
-
-                noxfrDecremented = g > (enc.Generation != 3 ? 4 : 5);
-
-                // Remove previous evolutions below transfer level
-                // For example a gen3 Charizard in format 7 with current level 36 and met level 36, thus could never be Charmander / Charmeleon in Gen5+.
-                // chain level for Charmander is 35, is below met level.
-                int minlvl = GetMinLevelGeneration(pk, g);
-
-                ref var genChain = ref GensEvoChains[g];
-                int minIndex = Array.FindIndex(genChain, e => e.LevelMax >= minlvl);
-                if (minIndex != -1)
-                    genChain = genChain.AsSpan(minIndex).ToArray();
-            }
-        }
-        return GensEvoChains;
-    }
-
-    private static void ReviseMaxLevel(ref byte lvl, PKM pk, int g, byte maxLevel)
-    {
-        // This is a Gen3 pokemon in a Gen4 phase evolution that requires level up and then transferred to Gen5+
-        // We can deduce that it existed in Gen4 until met level,
-        // but if current level is met level we can also deduce it existed in Gen3 until maximum met level -1
-        if (g == 3 && pk.Format > 4 && lvl == maxLevel)
-            lvl--;
-
-        // The same condition for Gen2 evolution of Gen1 pokemon, level of the pokemon in Gen1 games would be CurrentLevel -1 one level below Gen2 level
-        else if (g == 1 && pk.Format == 2 && lvl == maxLevel)
-            lvl--;
-    }
-
-    private static void CleanGen1(PKM pk, IEncounterTemplate enc, EvolutionHistory chains)
-    {
-        // Remove Gen7 pre-evolutions and chain break scenarios
-        if (pk.VC1)
-        {
-            var index = Array.FindLastIndex(chains.Gen7, z => z.Species <= MaxSpeciesID_1);
-            if (index == -1)
-            {
-                chains.Invalidate(); // needed a Gen1 species present; invalidate the chain.
-                return;
-            }
-        }
-
-        TrimSpeciesAbove(enc, MaxSpeciesID_1, ref chains.Gen1);
-    }
-
-    private static void TrimSpeciesAbove(IEncounterTemplate enc, int species, ref EvoCriteria[] chain)
-    {
-        var span = chain.AsSpan();
-
-        // Remove post-evolutions
-        if (span[0].Species > species)
-        {
-            if (span.Length == 1)
-            {
-                chain = Array.Empty<EvoCriteria>();
-                return;
-            }
-
-            span = span[1..];
-        }
-
-        // Remove pre-evolutions
-        if (span[^1].Species > species)
-        {
-            if (span.Length == 1)
-            {
-                chain = Array.Empty<EvoCriteria>();
-                return;
-            }
-
-            span = span[..^1];
-        }
-
-        if (span.Length != chain.Length)
-            chain = span.ToArray();
-
-        // Update min level for the encounter to prevent certain level up moves.
-        if (span.Length != 0)
-        {
-            ref var last = ref span[^1];
-            last = last with { LevelMin = enc.LevelMin };
-        }
-    }
-
-    private static bool HasMetLocationUpdatedTransfer(int originalGeneration, int currentGeneration) => originalGeneration switch
-    {
-        <  3 => currentGeneration >= 3,
-        <= 4 => currentGeneration != originalGeneration,
-        _    => false,
+        2 => pk is ICaughtData2 c2 ? Math.Max(c2.MetLevel, enc.LevelMin) : enc.LevelMin,
+        <= 4 when pk.Format != enc.Generation => enc.LevelMin,
+        _ => Math.Max(pk.MetLevel, enc.LevelMin),
     };
 
-    private static EvoCriteria[] GetEvolutionChain(PKM pk, IEncounterTemplate enc, int mostEvolvedSpecies, byte maxlevel)
+    private static EvolutionHistory EvolutionChainsSearch(PKM pk, EvolutionOrigin enc, EntityContext context, ushort encSpecies, Span<EvoCriteria> chain)
     {
-        int min = enc.LevelMin;
-        if (pk.HasOriginalMetLocation && pk.Met_Level != 0)
-            min = pk.Met_Level;
+        var history = new EvolutionHistory();
+        var length = GetOriginChain(chain, pk, enc, encSpecies, enc.IsDiscardRequired(pk.Format));
+        if (length == 0)
+            return history;
+        chain = chain[..length];
 
-        var chain = GetValidPreEvolutions(pk, minLevel: min);
-        return TrimChain(chain, enc, mostEvolvedSpecies, maxlevel);
-    }
-
-    private static EvoCriteria[] TrimChain(EvoCriteria[] chain, IEncounterTemplate enc, int mostEvolvedSpecies, byte maxlevel)
-    {
-        if (enc.Species == mostEvolvedSpecies)
-            return TrimChainSingle(chain, enc);
-
-        // Evolution chain is in reverse order (devolution)
-        // Find the index of the minimum species to determine the end of the chain
-        int minIndex = Array.FindLastIndex(chain, z => z.Species == enc.Species);
-        bool last = minIndex < 0 || minIndex == chain.Length - 1;
-
-        // If we remove a pre-evolution, update the chain if appropriate.
-        if (!last)
+        // Update the chain to only include the current species, leave future evolutions as unknown
+        if (encSpecies != 0)
+            EvolutionUtil.ConditionBaseChainForward(chain, encSpecies);
+        if (context == EntityContext.Gen2)
         {
-            // Remove chain species after the encounter
-            if (minIndex + 1 == chain.Length)
-                return Array.Empty<EvoCriteria>(); // no species left in chain
-
-            chain = chain.AsSpan(0, minIndex + 1).ToArray();
-            CheckLastEncounterRemoval(enc, chain);
+            // Handle the evolution case for Gen2->Gen1
+            EvolutionGroup2.Instance.Evolve(chain, pk, enc, history);
+            EvolutionGroup1.Instance.Evolve(chain, pk, enc, history);
+            if (pk.Format > 2) // Skip forward to Gen7
+                context = EntityContext.Gen7;
+            else // no more possible contexts; done.
+                return history;
         }
 
-        return TrimChainMore(chain, mostEvolvedSpecies, maxlevel);
-    }
-
-    private static EvoCriteria[] TrimChainMore(EvoCriteria[] chain, int mostEvolvedSpecies, byte maxlevel)
-    {
-        // maxspec is used to remove future geneneration evolutions, to gather evolution chain of a pokemon in previous generations
-        var maxSpeciesIndex = Array.FindIndex(chain, z => z.Species == mostEvolvedSpecies);
-        if (maxSpeciesIndex > 0)
-            chain = chain.AsSpan(maxSpeciesIndex).ToArray();
-
-        // Gen3->4 and Gen4->5 transfer sets the Met Level property to the Pokémon's current level.
-        // Removes evolutions impossible before the transfer level.
-        // For example a FireRed Charizard with a current level (in XY) is 50 but Met Level is 20; it couldn't be a Charizard in Gen3 and Gen4 games
-        var clampIndex = Array.FindIndex(chain, z => z.LevelMin > maxlevel);
-        if (clampIndex != -1)
-            chain = Array.FindAll(chain, z => z.LevelMin <= maxlevel);
-
-        // Reduce the evolution chain levels to max level to limit any later analysis/results.
-        SanitizeMaxLevel(chain, maxlevel);
-
-        return chain;
-    }
-
-    private static void SanitizeMaxLevel(EvoCriteria[] chain, byte maxlevel)
-    {
-        for (var i = 0; i < chain.Length; i++)
+        var group = EvolutionGroupUtil.GetGroup(context);
+        while (true)
         {
-            ref var c = ref chain[i];
-            c = c with { LevelMax = Math.Min(c.LevelMax, maxlevel) };
+            group.Evolve(chain, pk, enc, history);
+            var next = group.GetNext(pk, enc);
+            if (next is null)
+                break;
+            group = next;
         }
+        return history;
     }
 
-    private static EvoCriteria[] TrimChainSingle(EvoCriteria[] chain, IEncounterTemplate enc)
+    /// <summary>
+    /// Gets a list of <see cref="EvoCriteria"/> that represent the possible original states of the <paramref name="pk"/>.
+    /// </summary>
+    /// <param name="pk">Entity to search for.</param>
+    /// <param name="enc">Evolution details.</param>
+    /// <param name="encSpecies">Encountered as species. If not known (search for all), set to 0.</param>
+    /// <param name="discard">Discard evolutions that are not possible for the original context. Pass false to keep all evolutions.</param>
+    public static EvoCriteria[] GetOriginChain(PKM pk, EvolutionOrigin enc, ushort encSpecies = 0, bool discard = true)
     {
-        if (chain.Length == 1)
-            return chain;
-        var index = Array.FindLastIndex(chain, z => z.Species == enc.Species);
-        if (index == -1)
-            return Array.Empty<EvoCriteria>();
-        return new[] { chain[index] };
+        Span<EvoCriteria> result = stackalloc EvoCriteria[EvolutionTree.MaxEvolutions];
+        int count = GetOriginChain(result, pk, enc, encSpecies, discard);
+        if (count == 0)
+            return [];
+
+        var chain = result[..count];
+        if (IsMetLost(pk, enc)) // Original met level lost, need to be more permissive on evos.
+            EvolutionUtil.ConditionEncounterNoMet(chain);
+        return chain.ToArray();
     }
 
-    private static void CheckLastEncounterRemoval(IEncounterTemplate enc, EvoCriteria[] chain)
+    /// <summary>
+    /// Gets a list of <see cref="EvoCriteria"/> that represent the possible original states of the <paramref name="pk"/>.
+    /// </summary>
+    /// <param name="result">Span to write results to.</param>
+    /// <param name="pk">Entity to search for.</param>
+    /// <param name="enc">Evolution details.</param>
+    /// <param name="encSpecies">Encountered as species. If not known (search for all), set to 0.</param>
+    /// <param name="discard">Discard evolutions that are not possible for the original context. Pass false to keep all evolutions.</param>
+    /// <returns>Number of valid evolutions found.</returns>
+    public static int GetOriginChain(Span<EvoCriteria> result, PKM pk, EvolutionOrigin enc, ushort encSpecies = 0, bool discard = true)
     {
-        // Last entry from chain is removed, turn next entry into the encountered Pokémon
-        ref var last = ref chain[^1];
-        last = last with { LevelMin = enc.LevelMin, LevelUpRequired = 1 };
-
-        ref var first = ref chain[0];
-        if (first.RequiresLvlUp)
-            return;
-
-        if (first.LevelMin == 2)
+        ushort species = enc.Species;
+        byte form = pk.Form;
+        if (pk.IsEgg && !enc.SkipChecks)
         {
-            // Example: Raichu in Gen2 or later
-            // Because Pichu requires a level up, the minimum level of the resulting Raichu must be be >2
-            // But after removing Pichu (because the origin species is Pikachu), the Raichu minimum level should be 1.
-            first = first with { LevelMin = 1, LevelUpRequired = 0 };
+            result[0] = new EvoCriteria { Species = species, Form = form, LevelMax = enc.LevelMax, LevelMin = enc.LevelMax };
+            return 1;
         }
-        else // in-game trade or evolution stone can evolve immediately
+
+        result[0] = new EvoCriteria { Species = species, Form = form, LevelMax = enc.LevelMax };
+        var count = DevolveFrom(result, pk, enc, pk.Context, encSpecies, discard);
+
+        var chain = result[..count];
+        EvolutionUtil.CleanDevolve(chain, enc.LevelMin);
+        return count;
+    }
+
+    private static bool IsMetLost(PKM pk, EvolutionOrigin enc) => enc.Generation switch
+    {
+        >= 5 => false,
+        <= 2 => pk is not ICaughtData2 { MetLevel: not 0 },
+           _ => enc.Generation != pk.Format,
+    };
+
+    private static int DevolveFrom(Span<EvoCriteria> result, PKM pk, EvolutionOrigin enc, EntityContext context, ushort encSpecies, bool discard)
+    {
+        var group = EvolutionGroupUtil.GetGroup(context);
+        while (true)
         {
-            first = first with { LevelMin = enc.LevelMin };
+            group.Devolve(result, pk, enc);
+            var previous = group.GetPrevious(pk, enc);
+            if (previous is null)
+                break;
+            group = previous;
         }
+
+        if (discard)
+            group.DiscardForOrigin(result, pk, enc);
+        if (encSpecies != 0)
+            return EvolutionUtil.IndexOf(result, encSpecies) + 1;
+        return GetCount(result);
     }
 
-    internal static EvoCriteria[] GetValidPreEvolutions(PKM pk, int maxspeciesorigin = -1, int maxLevel = -1, int minLevel = 1, bool skipChecks = false)
+    /// <summary>
+    /// Gets the count of entries that are not empty (species == 0).
+    /// </summary>
+    private static int GetCount(in ReadOnlySpan<EvoCriteria> result)
     {
-        if (maxLevel < 0)
-            maxLevel = pk.CurrentLevel;
+        int count = 0;
+        foreach (ref readonly var evo in result)
+        {
+            if (evo.Species == 0)
+                break;
+            count++;
+        }
 
-        if (maxspeciesorigin == -1 && pk.InhabitedGeneration(2) && pk.Format <= 2 && pk.Generation == 1)
-            maxspeciesorigin = MaxSpeciesID_2;
-
-        var context = pk.Context;
-        if (context < EntityContext.Gen2)
-            context = EntityContext.Gen2;
-        var et = EvolutionTree.GetEvolutionTree(context);
-        return et.GetValidPreEvolutions(pk, maxLevel: (byte)maxLevel, maxSpeciesOrigin: maxspeciesorigin, skipChecks: skipChecks, minLevel: (byte)minLevel);
-    }
-
-    private static int GetMinLevelGeneration(PKM pk, int generation)
-    {
-        if (!pk.InhabitedGeneration(generation))
-            return 0;
-
-        if (pk.Format <= 2)
-            return 2;
-
-        var origin = pk.Generation;
-        if (!pk.HasOriginalMetLocation && generation != origin)
-            return pk.Met_Level;
-
-        // gen 3 and prior can't obtain anything at level 1
-        if (origin <= 3)
-            return 2;
-
-        return 1;
+        return count;
     }
 }

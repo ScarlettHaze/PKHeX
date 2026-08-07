@@ -1,4 +1,4 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
 /// <summary>
 /// <see cref="GameVersion.CXD"/> Game Language IDs
@@ -46,4 +46,40 @@ public enum LanguageGC : byte
     /// </summary>
     /// <remarks>Was reserved for Korean in Gen3 but never utilized.</remarks>
     UNUSED_6 = 7,
+}
+
+/// <summary>
+/// Extension to convert between <see cref="LanguageGC"/> and <see cref="LanguageID"/>.
+/// </summary>
+public static class LanguageGCRemap
+{
+    /// <summary>
+    /// Converts <see cref="LanguageGC"/> to <see cref="LanguageID"/>.
+    /// </summary>
+    public static LanguageID ToLanguageID(this LanguageGC lang) => lang switch
+    {
+        LanguageGC.Hacked => LanguageID.None,
+        LanguageGC.Japanese => LanguageID.Japanese,
+        LanguageGC.English => LanguageID.English,
+        LanguageGC.German => LanguageID.German,
+        LanguageGC.French => LanguageID.French,
+        LanguageGC.Italian => LanguageID.Italian,
+        LanguageGC.Spanish => LanguageID.Spanish,
+        _ => LanguageID.English,
+    };
+
+    /// <summary>
+    /// Converts <see cref="LanguageID"/> to <see cref="LanguageGC"/>.
+    /// </summary>
+    public static LanguageGC ToLanguageGC(this LanguageID lang) => lang switch
+    {
+        LanguageID.None => LanguageGC.Hacked,
+        LanguageID.Japanese => LanguageGC.Japanese,
+        LanguageID.English => LanguageGC.English,
+        LanguageID.German => LanguageGC.German,
+        LanguageID.French => LanguageGC.French,
+        LanguageID.Italian => LanguageGC.Italian,
+        LanguageID.Spanish => LanguageGC.Spanish,
+        _ => LanguageGC.English,
+    };
 }

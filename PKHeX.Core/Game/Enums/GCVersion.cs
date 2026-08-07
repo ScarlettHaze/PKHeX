@@ -1,4 +1,4 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
 /// <summary>
 /// <see cref="GameVersion"/> analogues used by Colosseum/XD instead of the main-series values.
@@ -6,14 +6,33 @@
 public enum GCVersion : byte
 {
     None = 0,
-    FR = 1,
-    LG = 2,
+    FR = 1, // RD
+    LG = 2, // GN
+    // BU = 3,
+    // YW = 4,
+    // GD = 5,
+    // SV = 6,
+    // C = 7,
     S = 8,
     R = 9,
     E = 10,
     CXD = 11,
 }
 
+/// <summary>
+/// Console region analogues used by Colosseum/XD to track the region of the data.
+/// </summary>
+public enum GCRegion : byte
+{
+    NoRegion = 0,
+    NTSC_J = 1,
+    NTSC_U = 2,
+    PAL = 3,
+}
+
+/// <summary>
+/// Extension methods for <see cref="GCVersion"/> and <see cref="GCRegion"/>.
+/// </summary>
 public static class GCVersionExtensions
 {
     /// <summary>
@@ -45,6 +64,6 @@ public static class GCVersionExtensions
         GCVersion.FR => GameVersion.FR,
         GCVersion.LG => GameVersion.LG,
         GCVersion.CXD => GameVersion.CXD,
-        _ => GameVersion.Unknown,
+        _ => GameVersion.Invalid,
     };
 }

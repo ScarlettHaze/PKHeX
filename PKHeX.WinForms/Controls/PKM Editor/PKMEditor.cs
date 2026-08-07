@@ -1,14 +1,14 @@
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Linq;
-using System.Windows.Forms;
 using PKHeX.Core;
 using PKHeX.Drawing;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
+using PKHeX.Drawing.Misc;
 using PKHeX.Drawing.PokeSprite;
-using PKHeX.Drawing.PokeSprite.Properties;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
 using static PKHeX.Core.MessageStrings;
 
 namespace PKHeX.WinForms.Controls;
@@ -16,48 +16,48 @@ namespace PKHeX.WinForms.Controls;
 public sealed partial class PKMEditor : UserControl, IMainEditor
 {
     public bool IsInitialized { get; private set; }
+    private readonly ToolTip SpeciesIDTip = new();
+    private readonly ToolTip NatureTip = new();
+    private readonly ToolTip TipPIDInfo = new();
+    private readonly ToolTip AffixedTip = new();
 
     public PKMEditor()
     {
         InitializeComponent();
 
-        // Groupbox doesn't show Click event in Designer...
-        GB_OT.Click += ClickGT;
-        GB_nOT.Click += ClickGT;
-        GB_CurrentMoves.Click += ClickMoves;
-        GB_RelearnMoves.Click += ClickMoves;
-
-        var font = FontUtil.GetPKXFont();
-        TB_Nickname.Font = TB_OT.Font = TB_HT.Font = font;
-
         // Commonly reused Control arrays
-        Moves = new[] { CB_Move1, CB_Move2, CB_Move3, CB_Move4 };
-        Relearn = new[] { CB_RelearnMove1, CB_RelearnMove2, CB_RelearnMove3, CB_RelearnMove4 };
-        PPUps = new[] { CB_PPu1, CB_PPu2, CB_PPu3, CB_PPu4 };
-        MovePP = new[] { TB_PP1, TB_PP2, TB_PP3, TB_PP4 };
-        Markings = new[] { PB_Mark1, PB_Mark2, PB_Mark3, PB_Mark4, PB_Mark5, PB_Mark6 };
+        Moves = [MC_Move1, MC_Move2, MC_Move3, MC_Move4];
+        Relearn = [CB_RelearnMove1, CB_RelearnMove2, CB_RelearnMove3, CB_RelearnMove4];
+        Markings = [PB_Mark1, PB_Mark2, PB_Mark3, PB_Mark4, PB_Mark5, PB_Mark6];
 
         // Legality Indicators
-        relearnPB = new[] { PB_WarnRelearn1, PB_WarnRelearn2, PB_WarnRelearn3, PB_WarnRelearn4 };
-        movePB = new[] { PB_WarnMove1, PB_WarnMove2, PB_WarnMove3, PB_WarnMove4 };
+        relearnPB = [PB_WarnRelearn1, PB_WarnRelearn2, PB_WarnRelearn3, PB_WarnRelearn4];
+        BTN_NicknameWarn.Visible = BTN_OTNameWarn.Visible = false;
 
         // Validation of incompletely entered data fields
         bool Criteria(Control c) => c.BackColor == Draw.InvalidSelection && c is ComboBox { Items.Count: not 0 };
-        ValidatedControls = new ValidationRequiredSet[]
-        {
-            new(Moves, _ => true, Criteria),
-            new(new[] {CB_Species}, _ => true, Criteria),
-            new(new[] {CB_HeldItem}, pk => pk.Format >= 2, Criteria),
-            new(new[] {CB_Ability, CB_Nature, CB_MetLocation, CB_Ball}, pk => pk.Format >= 3, Criteria),
-            new(new[] {CB_EggLocation}, pk => pk.Format >= 4, Criteria),
-            new(new[] {CB_Country, CB_SubRegion}, pk => pk is PK6 or PK7, Criteria),
+        ValidatedControls =
+        [
+            new(Moves, _ => true, z => Criteria(((MoveChoice)z).CB_Move)),
+            new([CB_Species], _ => true, Criteria),
+            new([CB_HeldItem], pk => pk.Format >= 2, Criteria),
+            new([CB_Ability, CB_Nature, CB_MetLocation, CB_Ball], pk => pk.Format >= 3, Criteria),
+            new([CB_EggLocation], pk => pk.Format >= 4, Criteria),
+            new([CB_Country, CB_SubRegion], pk => pk is PK6 or PK7, Criteria),
             new(Relearn, pk => pk.Format >= 6, Criteria),
-            new(new[] {CB_StatNature}, pk => pk.Format >= 8, Criteria),
-            new(new[] {CB_AlphaMastered}, pk => pk is PA8, Criteria),
-        };
-
-        foreach (var c in WinFormsUtil.GetAllControlsOfType<ComboBox>(this))
-            c.KeyDown += WinFormsUtil.RemoveDropCB;
+            new([CB_StatAlignment], pk => pk.Format >= 8, Criteria),
+            new([CB_AlphaMastered], pk => pk is PA8, Criteria),
+        ];
+        foreach (var m in Moves)
+        {
+            m.CB_PPUps.SelectedIndexChanged += (_, _) => m.HealPP(Entity);
+            m.CB_Move.DrawItem += ValidateMovePaint;
+            m.CB_Move.DropDown += ValidateMoveDropDown;
+            m.CB_Move.MeasureItem += MeasureDropDownHeight;
+            m.CB_Move.SelectedIndexChanged += ValidateMove;
+            m.CB_Move.Leave += ValidateComboBox2;
+            m.CB_Move.Validating += ValidateComboBox;
+        }
 
         Stats.MainEditor = this;
         LoadShowdownSet = LoadShowdownSetDefault;
@@ -66,40 +66,60 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         // Controls contained in a TabPage are not created until the tab page is shown
         // Any data bindings in these controls are not activated until the tab page is shown.
         FlickerInterface();
+
+        TB_EXP.MouseWheel += WinFormsUtil.MouseWheelIncrement1;
+        TB_Level.MouseWheel += WinFormsUtil.MouseWheelIncrement1;
+        TB_Friendship.MouseWheel += WinFormsUtil.MouseWheelIncrement1;
+        ExperienceBar.ValueChanged += (_, _) => TB_EXP.Text = ExperienceBar.EXP.ToString();
     }
 
-    private sealed class ValidationRequiredSet
+    private void ClickManualAbility(object sender, EventArgs e)
     {
-        private readonly Control[] Controls;
-        private readonly Func<PKM, bool> ShouldCheck;
-        private readonly Func<Control, bool> IsInvalidState;
+        if (ModifierKeys != Keys.Control)
+            return;
+        var value = Util.ToInt32(TB_AbilityNumber.Text);
+        if (value is not (1 or 2 or 4))
+            return;
 
+        var pk = Entity;
+        IPersonalAbility pi;
+        if (pk is PA9 pa9)
+        {
+            var la = new LegalityAnalysis(pa9);
+            var enc = la.EncounterMatch;
+            pi = PersonalTable.ZA[enc.Species, enc.Form];
+        }
+        else
+        {
+            pi = Entity.PersonalInfo;
+        }
+        DEV_Ability.SelectedValue = pi.GetAbilityAtIndex(value >> 1);
+    }
+
+    private sealed class ValidationRequiredSet(Control[] controls, Func<PKM, bool> shouldCheck, Func<Control, bool> isState)
+    {
         public Control? IsNotValid(PKM pk)
         {
-            if (!ShouldCheck(pk))
+            if (!shouldCheck(pk))
                 return null;
-            return Array.Find(Controls, z => IsInvalidState(z));
-        }
-
-        public ValidationRequiredSet(Control[] controls, Func<PKM, bool> shouldCheck, Func<Control, bool> state)
-        {
-            Controls = controls;
-            ShouldCheck = shouldCheck;
-            IsInvalidState = state;
+            return Array.Find(controls, z => isState(z));
         }
     }
 
     public void InitializeBinding()
     {
         ComboBox[] cbs =
-        {
-            CB_Nature, CB_StatNature,
+        [
+            CB_Nature, CB_StatAlignment,
             CB_Country, CB_SubRegion, CB_3DSReg, CB_Language, CB_Ball, CB_HeldItem, CB_Species, DEV_Ability,
             CB_GroundTile, CB_GameOrigin, CB_BattleVersion, CB_Ability, CB_MetLocation, CB_EggLocation, CB_Language, CB_HTLanguage,
             CB_AlphaMastered,
-        };
-        foreach (var cb in cbs.Concat(Moves.Concat(Relearn)))
+        ];
+        foreach (var cb in cbs.Concat(Relearn))
+        {
+            cb.BindingContext = BindingContext;
             cb.InitializeBinding();
+        }
 
         IsInitialized = true;
     }
@@ -109,6 +129,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         Stats.UpdateStats();
         if (Entity is IScaledSizeAbsolute)
             SizeCP.TryResetStats();
+        StatusView.LoadPKM(Entity);
     }
 
     private void LoadPartyStats(PKM pk) => Stats.LoadPartyStats(pk);
@@ -117,26 +138,31 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     public PKM CurrentPKM { get => PreparePKM(); set => Entity = value; }
     public bool ModifyPKM { private get; set; } = true;
-    private bool _hideSecret;
 
     public bool HideSecretValues
     {
-        private get => _hideSecret;
+        private get;
         set
         {
-            _hideSecret = value;
+            field = value;
             var sav = RequestSaveFile;
-            ToggleSecrets(_hideSecret, sav.Generation);
+            ToggleSecrets(field, sav.Generation);
         }
     }
 
     public DrawConfig Draw { private get; set; } = null!;
     public bool Unicode { get; set; } = true;
-    private bool _hax;
-    public bool HaX { get => _hax; set => _hax = Stats.HaX = value; }
-    private byte[] LastData = Array.Empty<byte>();
 
-    public PKM Data { get => Entity; set => Entity = value; }
+    public bool HaX
+    {
+        get;
+        set => field = Stats.HaX = value;
+    }
+
+    private byte[] LastData { get; set; } = [];
+    public void NotifyWasExported(PKM pk) => LastData = pk.Data.ToArray();
+
+    public PKM Data => Entity;
     public PKM Entity { get; private set; } = null!;
     public bool FieldsLoaded { get; private set; }
     public bool ChangingFields { get; set; }
@@ -180,13 +206,13 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     public event ReturnSAVEventHandler SaveFileRequested = null!;
     public delegate SaveFile ReturnSAVEventHandler(object sender, EventArgs e);
 
-    private readonly PictureBox[] movePB, relearnPB;
+    private readonly PictureBox[] relearnPB;
     public SaveFile RequestSaveFile => SaveFileRequested.Invoke(this, EventArgs.Empty);
-    public bool PKMIsUnsaved => FieldsLoaded && LastData.Any(b => b != 0) && !LastData.SequenceEqual(CurrentPKM.Data);
+    public bool PKMIsUnsaved => FieldsLoaded && LastData.ContainsAnyExcept<byte>(0) && !CurrentPKM.Data.SequenceEqual(LastData);
 
-    private readonly ComboBox[] Moves, Relearn, PPUps;
+    private readonly MoveChoice[] Moves;
+    private readonly ComboBox[] Relearn;
     private readonly ValidationRequiredSet[] ValidatedControls;
-    private readonly MaskedTextBox[] MovePP;
     private readonly PictureBox[] Markings;
 
     private bool forceValidation;
@@ -201,7 +227,6 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
 
         var pk = GetPKMfromFields();
-        LastData = pk.Data;
         return pk.Clone();
     }
 
@@ -209,30 +234,35 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         get
         {
+            // Find the first unfilled control, indicate as invalid.
+            TabPage? invalid = GetInvalidParentTab();
+            if (invalid is null)
+                return true; // No issue.
+
             if (ModifierKeys == (Keys.Control | Keys.Shift | Keys.Alt))
                 return true; // Override
 
-            // If any controls are partially filled out, find the first one so we can indicate as such.
-            Control? cb = null;
-            foreach (var type in ValidatedControls)
-            {
-                cb = type.IsNotValid(Entity);
-                if (cb is not null)
-                    break;
-            }
-
-            if (cb != null)
-                tabMain.SelectedTab = WinFormsUtil.FindFirstControlOfType<TabPage>(cb);
-            else if (!Stats.Valid)
-                tabMain.SelectedTab = Tab_Stats;
-            else if (WinFormsUtil.GetIndex(CB_Species) == 0 && !HaX) // can't set an empty slot...
-                tabMain.SelectedTab = Tab_Main;
-            else
-                return true;
-
-            System.Media.SystemSounds.Exclamation.Play();
+            WinFormsUtil.Exclamation();
             return false;
         }
+    }
+
+    private TabPage? GetInvalidParentTab()
+    {
+        if (!Stats.Valid)
+            return Hidden_Stats;
+        if (WinFormsUtil.GetIndex(CB_Species) == 0 && !HaX) // can't set an empty slot...
+            return Hidden_Main;
+        foreach (var type in ValidatedControls)
+        {
+            var cb = type.IsNotValid(Entity);
+            if (cb is null)
+                continue;
+            if (!WinFormsUtil.TryFindFirstControlOfType<TabPage>(cb, out var tab))
+                ArgumentNullException.ThrowIfNull(tab); // we expect a Tab to be the parent
+            return tab;
+        }
+        return null;
     }
 
     public void SetPKMFormatMode(PKM pk)
@@ -240,32 +270,40 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         // Load Extra Byte List
         SetPKMFormatExtraBytes(pk);
         (GetFieldsfromPKM, GetPKMfromFields) = GetLoadSet(pk);
+        foreach (var move in Moves)
+            move.SetContext(pk.Context);
+        TB_Nickname.DisplayContext = TB_OT.DisplayContext = TB_HT.DisplayContext = pk.Context;
     }
 
-    private (Action, Func<PKM>) GetLoadSet(PKM pk) => pk.Format switch
+    private (Action Load, Func<PKM> Set) GetLoadSet(PKM pk) => GetLoadSet(pk.Context);
+
+    private (Action Load, Func<PKM> Set) GetLoadSet(EntityContext context) => context switch
     {
-        1 => (PopulateFieldsPK1, PreparePK1),
-        2 => (PopulateFieldsPK2, PreparePK2),
-        3 => (PopulateFieldsPK3, PreparePK3),
-        4 => (PopulateFieldsPK4, PreparePK4),
-        5 => (PopulateFieldsPK5, PreparePK5),
-        6 => (PopulateFieldsPK6, PreparePK6),
-        7 when pk is PK7 => (PopulateFieldsPK7, PreparePK7),
-        7 when pk is PB7 => (PopulateFieldsPB7, PreparePB7),
-        8 when pk is PK8 => (PopulateFieldsPK8, PreparePK8),
-        8 when pk is PA8 => (PopulateFieldsPA8, PreparePA8),
-        8 when pk is PB8 => (PopulateFieldsPB8, PreparePB8),
-        _ => throw new FormatException($"Unrecognized Type: {pk.GetType()}"),
+        EntityContext.Gen1 => (PopulateFieldsPK1, PreparePK1),
+        EntityContext.Gen2 => (PopulateFieldsPK2, PreparePK2),
+        EntityContext.Gen3 => (PopulateFieldsPK3, PreparePK3),
+        EntityContext.Gen4 => (PopulateFieldsPK4, PreparePK4),
+        EntityContext.Gen5 => (PopulateFieldsPK5, PreparePK5),
+        EntityContext.Gen6 => (PopulateFieldsPK6, PreparePK6),
+        EntityContext.Gen7 => (PopulateFieldsPK7, PreparePK7),
+        EntityContext.Gen8 => (PopulateFieldsPK8, PreparePK8),
+        EntityContext.Gen9 => (PopulateFieldsPK9, PreparePK9),
+
+        EntityContext.Gen7b => (PopulateFieldsPB7, PreparePB7),
+        EntityContext.Gen8a => (PopulateFieldsPA8, PreparePA8),
+        EntityContext.Gen8b => (PopulateFieldsPB8, PreparePB8),
+        EntityContext.Gen9a => (PopulateFieldsPA9, PreparePA9),
+        _ => throw new ArgumentOutOfRangeException(nameof(context), context, null),
     };
 
     private void SetPKMFormatExtraBytes(PKM pk)
     {
         var extraBytes = pk.ExtraBytes;
-        GB_ExtraBytes.Visible = GB_ExtraBytes.Enabled = extraBytes.Count != 0;
+        L_ExtraBytes.Visible = FLP_ExtraBytes.Visible = FLP_ExtraBytes.Enabled = extraBytes.Length != 0;
         CB_ExtraBytes.Items.Clear();
         foreach (var b in extraBytes)
             CB_ExtraBytes.Items.Add($"0x{b:X2}");
-        if (GB_ExtraBytes.Enabled)
+        if (FLP_ExtraBytes.Enabled)
             CB_ExtraBytes.SelectedIndex = 0;
     }
 
@@ -274,11 +312,12 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void LoadFieldsFromPKM(PKM pk, bool focus = true, bool skipConversionCheck = true)
     {
         if (focus)
-            Tab_Main.Focus();
+            Hidden_Main.Focus();
 
+        var input = pk;
         if (!skipConversionCheck && !EntityConverter.TryMakePKMCompatible(pk, Entity, out var c, out pk))
         {
-            var msg = c.GetDisplayString(pk, Entity.GetType());
+            var msg = c.GetDisplayString(input, Entity.GetType());
             WinFormsUtil.Alert(msg);
             return;
         }
@@ -297,7 +336,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         Stats.UpdateIVs(this, EventArgs.Empty);
         UpdatePKRSInfected(this, EventArgs.Empty);
         UpdatePKRSCured(this, EventArgs.Empty);
-        UpdateNatureModification(CB_StatNature, Entity.StatNature);
+        UpdateNatureModification(CB_StatAlignment, Entity.StatAlignment);
 
         if (HaX)
         {
@@ -306,13 +345,15 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
         FieldsLoaded = true;
 
+        UpdateAffixed(pk);
         SetMarkings();
         UpdateLegality();
         UpdateSprite();
-        LastData = PreparePKM().Data;
+        NotifyWasExported(PreparePKM());
+        RefreshFontWarningButton();
     }
 
-    public void UpdateLegality(LegalityAnalysis? la = null, bool skipMoveRepop = false)
+    public void UpdateLegality(LegalityAnalysis? la = null, UpdateLegalityArgs args = 0)
     {
         if (!FieldsLoaded)
             return;
@@ -320,46 +361,34 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         Legality = la ?? new LegalityAnalysis(Entity, RequestSaveFile.Personal);
         if (!Legality.Parsed || HaX || Entity.Species == 0)
         {
-            PB_WarnMove1.Visible = PB_WarnMove2.Visible = PB_WarnMove3.Visible = PB_WarnMove4.Visible = false;
+            MC_Move1.HideLegality = MC_Move2.HideLegality = MC_Move3.HideLegality = MC_Move4.HideLegality = true;
             PB_WarnRelearn1.Visible = PB_WarnRelearn2.Visible = PB_WarnRelearn3.Visible = PB_WarnRelearn4.Visible = false;
             LegalityChanged?.Invoke(Legality.Valid, EventArgs.Empty);
             return;
         }
+        PB_WarnRelearn1.Visible = PB_WarnRelearn2.Visible = PB_WarnRelearn3.Visible = PB_WarnRelearn4.Visible = true;
+        MC_Move1.HideLegality = MC_Move2.HideLegality = MC_Move3.HideLegality = MC_Move4.HideLegality = false;
 
         // Refresh Move Legality
         var info = Legality.Info;
         var moves = info.Moves;
         for (int i = 0; i < 4; i++)
-        {
-            var pb = movePB[i];
-            pb.Visible = true;
-            pb.Image = GetMoveImage(!moves[i].Valid, Entity, i);
-        }
+            Moves[i].UpdateLegality(moves[i], Entity, i);
 
         if (Entity.Format >= 6)
         {
             var relearn = info.Relearn;
             for (int i = 0; i < 4; i++)
-                relearnPB[i].Visible = !relearn[i].Valid;
+                relearnPB[i].Image = MoveDisplayState.GetMoveImage(!relearn[i].Valid, Entity, i);
         }
 
-        if (skipMoveRepop)
+        if (args.HasFlag(UpdateLegalityArgs.SkipMoveRepopulation))
             return;
         // Resort moves
         FieldsLoaded = false;
-        LegalMoveSource.ReloadMoves(Legality.GetSuggestedMovesAndRelearn());
+        LegalMoveSource.ReloadMoves(Legality);
         FieldsLoaded = true;
         LegalityChanged?.Invoke(Legality.Valid, EventArgs.Empty);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Bitmap? GetMoveImage(bool isIllegal, PKM pk, int index)
-    {
-        if (isIllegal)
-            return Resources.warn;
-        if (pk.Format >= 8 && MoveInfo.GetDummiedMovesHashSet(pk.Context).Contains(pk.GetMove(index)))
-            return Resources.hint;
-        return null;
     }
 
     public void UpdateUnicode(IReadOnlyList<string> symbols)
@@ -368,12 +397,12 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (!Unicode)
         {
             BTN_Shinytize.Text = Draw.ShinyDefault;
-            TB_Nickname.Font = TB_OT.Font = TB_HT.Font = GB_OT.Font;
+            TB_Nickname.DisableInGameFont = true;
         }
         else
         {
             BTN_Shinytize.Text = Draw.ShinyUnicode;
-            TB_Nickname.Font = TB_OT.Font = TB_HT.Font = FontUtil.GetPKXFont();
+            TB_Nickname.DisableInGameFont = false;
         }
     }
 
@@ -384,24 +413,24 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     }
 
     // General Use Functions //
-    private void SetDetailsOT(ITrainerInfo tr)
+    private void SetDetailsOT<T>(T tr) where T : ITrainerInfo, ITrainerID32
     {
         if (string.IsNullOrWhiteSpace(tr.OT))
             return;
 
         // Get Save Information
         TB_OT.Text = tr.OT;
-        UC_OTGender.Gender = tr.Gender & 1;
-        TID_Trainer.LoadInfo(tr);
+        UC_OTGender.Gender = (byte)(tr.Gender & 1);
+        TID_Trainer.LoadTrainer(tr, tr.Generation);
 
-        if (tr.Game >= 0)
-            CB_GameOrigin.SelectedValue = tr.Game;
+        if (tr.Version.IsValidSavedVersion())
+            CB_GameOrigin.SelectedValue = (int)tr.Version;
 
         var lang = tr.Language;
         if (lang <= 0)
             lang = (int)LanguageID.English;
         CB_Language.SelectedValue = lang;
-        if (tr is IRegionOrigin o)
+        if (tr is IRegionOriginReadOnly o)
         {
             CB_3DSReg.SelectedValue = (int)o.ConsoleRegion;
             CB_Country.SelectedValue = (int)o.Country;
@@ -409,13 +438,13 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
 
         // Copy OT trash bytes for sensitive games (Gen1/2)
-        if (tr is SAV1 s1 && Entity is PK1 p1) s1.OT_Trash.CopyTo(p1.OT_Trash);
-        else if (tr is SAV2 s2 && Entity is PK2 p2) s2.OT_Trash.CopyTo(p2.OT_Trash);
+        if (tr is SAV1 s1 && Entity is PK1 p1) s1.OriginalTrainerTrash.CopyTo(p1.OriginalTrainerTrash);
+        else if (tr is SAV2 s2 && Entity is PK2 p2) s2.OriginalTrainerTrash.CopyTo(p2.OriginalTrainerTrash);
 
         UpdateNickname(this, EventArgs.Empty);
     }
 
-    private void SetDetailsHT(ITrainerInfo tr)
+    private void SetDetailsHT<T>(T tr) where T : ITrainerInfo
     {
         var trainer = tr.OT;
         if (trainer.Length == 0)
@@ -424,7 +453,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (!tr.IsOriginalHandler(Entity, false))
         {
             TB_HT.Text = trainer;
-            UC_HTGender.Gender = tr.Gender & 1;
+            UC_HTGender.Gender = (byte)(tr.Gender & 1);
             if (Entity is IHandlerLanguage)
                 CB_HTLanguage.SelectedValue = tr.Language;
         }
@@ -437,8 +466,10 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void SetForms()
     {
-        int species = Entity.Species;
+        var species = Entity.Species;
         var pi = RequestSaveFile.Personal[species];
+        UC_Gender.AllowClick = pi.IsDualGender;
+
         bool hasForms = FormInfo.HasFormSelection(pi, species, Entity.Format);
         CB_Form.Enabled = CB_Form.Visible = Label_Form.Visible = hasForms;
 
@@ -455,11 +486,12 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
         }
 
-        var ds = FormConverter.GetFormList(species, GameInfo.Strings.types, GameInfo.Strings.forms, gendersymbols, Entity.Format);
-        if (ds.Length == 1 && string.IsNullOrEmpty(ds[0])) // empty (Alolan Totems)
+        var str = GameInfo.Strings;
+        var forms = FormConverter.GetFormList(species, str.types, str.forms, gendersymbols, Entity.Context);
+        if (forms.Length <= 1) // no choices
             CB_Form.Enabled = CB_Form.Visible = Label_Form.Visible = false;
         else
-            CB_Form.DataSource = ds;
+            CB_Form.DataSource = forms;
     }
 
     private void SetAbilityList()
@@ -468,18 +500,19 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
 
         if (Entity.Format > 3 && FieldsLoaded) // has forms
-            Entity.Form = CB_Form.SelectedIndex; // update pk field for form specific abilities
+            Entity.Form = (byte)CB_Form.SelectedIndex; // update pk field for form specific abilities
 
-        int abil = CB_Ability.SelectedIndex;
+        int ability = CB_Ability.SelectedIndex;
 
         bool tmp = FieldsLoaded;
         FieldsLoaded = false;
-        CB_Ability.DataSource = GameInfo.FilteredSources.GetAbilityList(Entity);
-        CB_Ability.SelectedIndex = GetSafeIndex(CB_Ability, abil); // restore original index if available
+        var items = GameInfo.FilteredSources.GetAbilityList(Entity.PersonalInfo);
+        if (Entity is { Context: EntityContext.Gen5, Species: (ushort)Species.Basculin, Form: 1 })
+            items = [.. items, FilteredGameDataSource.GetAbilityItem(GameInfo.Strings.abilitylist, (int)Ability.Reckless, '*')];
+        CB_Ability.DataSource = items;
+        CB_Ability.SelectedIndex = Math.Clamp(ability, 0, items.Count - 1); // restore original index if available
         FieldsLoaded = tmp;
     }
-
-    private static int GetSafeIndex(ComboBox cb, int index) => Math.Max(0, Math.Min(cb.Items.Count - 1, index));
 
     private void UpdateIsShiny()
     {
@@ -495,57 +528,64 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void SetMarkings()
     {
-        var pba = Markings;
-        var count = Entity.MarkingCount;
-        for (int i = 0; i < pba.Length; i++)
-            pba[i].Image = GetMarkSprite(pba[i], i < count && Entity.GetMarking(i) != 0);
-
         PB_MarkShiny.Image = GetMarkSprite(PB_MarkShiny, !BTN_Shinytize.Enabled);
         PB_MarkCured.Image = GetMarkSprite(PB_MarkCured, CHK_Cured.Checked);
 
-        PB_Favorite.Image = GetMarkSprite(PB_Favorite, Entity is IFavorite {Favorite: true});
+        PB_Favorite.Image = GetMarkSprite(PB_Favorite, Entity is IFavorite { IsFavorite: true });
         PB_Origin.Image = GetOriginSprite(Entity);
 
-        // Colored Markings
-        if (Entity.Format < 7)
-            return;
-
-        for (int i = 0; i < count; i++)
+        var pba = Markings;
+        if (Entity is IAppliedMarkings<bool> b)
         {
-            if (!Draw.GetMarkingColor(Entity.GetMarking(i), out Color c))
-                continue;
-            var pb = pba[i];
-            pb.Image = ImageUtil.ChangeAllColorTo(pb.Image, c);
+            for (int i = 0; i < b.MarkingCount; i++)
+                SetMarkingImage(pba[i], Draw.MarkDefault, b.GetMarking(i));
+        }
+        else if (Entity is IAppliedMarkings<MarkingColor> c)
+        {
+            for (int i = 0; i < pba.Length; i++)
+            {
+                var state = c.GetMarking(i);
+                _ = Draw.GetMarkingColor(state, out var color);
+                SetMarkingImage(pba[i], color, state != MarkingColor.None);
+            }
+        }
+        return;
+
+        static void SetMarkingImage(PictureBox pb, Color color, bool active)
+        {
+            var bmp = pb.InitialImage as Bitmap;
+            ArgumentNullException.ThrowIfNull(bmp);
+
+            if (color.ToArgb() != Color.Black.ToArgb())
+                bmp = ImageUtil.CopyChangeAllColorTo(bmp, color);
+            if (!active)
+                bmp = ImageUtil.CopyChangeOpacity(bmp, 1 / 8f);
+            pb.Image = bmp;
         }
     }
 
-    private static Image? GetOriginSprite(PKM pk)
+    private static Bitmap? GetOriginSprite(PKM pk)
     {
-        if (pk.Format < 6)
-            return null;
-
-        // Specific Markings
-        if (pk.VC)
-            return Properties.Resources.gen_vc;
-        if (pk.GO)
-            return Properties.Resources.gen_go;
-        if (pk.LGPE)
-            return Properties.Resources.gen_gg;
-
-        // Lumped Generations
-        if (pk.Gen6)
-            return Properties.Resources.gen_6;
-        if (pk.Gen7)
-            return Properties.Resources.gen_7;
-        if (pk.SWSH)
-            return Properties.Resources.gen_8;
-        if (pk.BDSP)
-            return Properties.Resources.gen_bs;
-        if (pk.LA)
-            return Properties.Resources.gen_la;
-
-        return null;
+        var img = GetOriginSpriteResource(pk);
+        if (img is null || !Application.IsDarkModeEnabled)
+            return img;
+        return WinFormsUtil.BlackToWhite(img);
     }
+
+    private static Bitmap? GetOriginSpriteResource(PKM pk) => OriginMarkUtil.GetOriginMark(pk) switch
+    {
+        OriginMark.Gen6Pentagon => Properties.Resources.gen_6,
+        OriginMark.Gen7Clover => Properties.Resources.gen_7,
+        OriginMark.Gen8Galar => Properties.Resources.gen_8,
+        OriginMark.Gen8Trio => Properties.Resources.gen_bs,
+        OriginMark.Gen8Arc => Properties.Resources.gen_la,
+        OriginMark.Gen9Paldea => Properties.Resources.gen_sv,
+        OriginMark.GameBoy => Properties.Resources.gen_vc,
+        OriginMark.Gen9ZA => Properties.Resources.gen_za,
+        OriginMark.GO => Properties.Resources.gen_go,
+        OriginMark.LetsGo => Properties.Resources.gen_gg,
+        _ => null,
+    };
 
     private static void SetCountrySubRegion(ComboBox cb, string type)
     {
@@ -576,12 +616,19 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void ClickGender(object sender, EventArgs e)
     {
-        if (!Entity.PersonalInfo.IsDualGender)
+        var pi = Entity.PersonalInfo;
+        if (!pi.IsDualGender)
+        {
+            var expect = pi.FixedGender();
+            if (UC_Gender.Gender != expect)
+                UC_Gender.Gender = expect;
             return; // can't toggle
+        }
 
-        var (canToggle, gender) = UC_Gender.ToggleGender();
+        var canToggle = UC_Gender.CanToggle();
+        var gender = UC_Gender.Gender;
         if (!canToggle)
-            return;
+            gender = UC_Gender.Gender = 0; // fix bad genders
         if (Entity.Format <= 2)
         {
             Stats.SetATKIVGender(gender);
@@ -589,9 +636,9 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
         else if (Entity.Format <= 4)
         {
-            Entity.Version = WinFormsUtil.GetIndex(CB_GameOrigin);
-            Entity.Nature = WinFormsUtil.GetIndex(CB_Nature);
-            Entity.Form = CB_Form.SelectedIndex;
+            Entity.Version = (GameVersion)WinFormsUtil.GetIndex(CB_GameOrigin);
+            Entity.Nature = (Nature)WinFormsUtil.GetIndex(CB_Nature);
+            Entity.Form = (byte)CB_Form.SelectedIndex;
 
             Entity.SetPIDGender(gender);
             TB_PID.Text = Entity.PID.ToString("X8");
@@ -606,23 +653,27 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void ClickPP(object sender, EventArgs e)
     {
-        for (int i = 0; i < MovePP.Length; i++)
-            RefreshMovePP(i);
+        foreach (var cb in Moves)
+            cb.HealPP(Entity);
     }
 
     private void ClickPPUps(object sender, EventArgs e)
     {
         bool min = (ModifierKeys & Keys.Control) != 0 || !Legal.IsPPUpAvailable(Entity);
-        static int GetValue(ListControl cb, bool zero) => zero || WinFormsUtil.GetIndex(cb) == 0 ? 0 : 3;
-        CB_PPu1.SelectedIndex = GetValue(CB_Move1, min);
-        CB_PPu2.SelectedIndex = GetValue(CB_Move2, min);
-        CB_PPu3.SelectedIndex = GetValue(CB_Move3, min);
-        CB_PPu4.SelectedIndex = GetValue(CB_Move4, min);
+        if (min)
+        {
+            MC_Move1.PPUps = MC_Move2.PPUps = MC_Move3.PPUps = MC_Move4.PPUps = 0;
+            return;
+        }
+
+        static int GetValue(ushort move) => Legal.IsPPUpAvailable(move) ? 3 : 0;
+        foreach (var cb in Moves)
+            cb.PPUps = GetValue(cb.SelectedMove);
     }
 
     private void ClickMarking(object sender, EventArgs e)
     {
-        int index = Array.IndexOf(Markings, (PictureBox)sender);
+        int index = Markings.IndexOf((PictureBox)sender);
         Entity.ToggleMarking(index);
         SetMarkings();
     }
@@ -630,7 +681,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void ClickFavorite(object sender, EventArgs e)
     {
         if (Entity is IFavorite pb7)
-            pb7.Favorite ^= true;
+            pb7.IsFavorite ^= true;
         SetMarkings();
     }
 
@@ -639,7 +690,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void ClickBall(object sender, EventArgs e)
     {
-        Entity.Ball = WinFormsUtil.GetIndex(CB_Ball);
+        Entity.Ball = (byte)WinFormsUtil.GetIndex(CB_Ball);
         if ((ModifierKeys & Keys.Alt) != 0)
         {
             CB_Ball.SelectedValue = (int)Ball.Poke;
@@ -647,18 +698,21 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
         if ((ModifierKeys & Keys.Shift) != 0)
         {
-            CB_Ball.SelectedValue = BallApplicator.ApplyBallLegalByColor(Entity);
+            CB_Ball.SelectedValue = (int)BallApplicator.ApplyBallLegalByColor(Entity);
             return;
         }
 
         using var frm = new BallBrowser();
         frm.LoadBalls(Entity);
         frm.ShowDialog();
-        if (frm.BallChoice >= 0)
-            CB_Ball.SelectedValue = frm.BallChoice;
-    }
+        if (!frm.WasBallChosen)
+            return;
 
-    private void ClickShinyLeaf(object sender, EventArgs e) => ShinyLeaf.CheckAll(ModifierKeys != Keys.Control);
+        // Set to the entity, then check the updated value.
+        // Gen4 has split fields for HG/SS and D/P/Pt segregation. If the value refused to update, show the refused value.
+        Entity.Ball = frm.BallChoice;
+        CB_Ball.SelectedValue = (int)Entity.Ball;
+    }
 
     private void ClickMetLocation(object sender, EventArgs e)
     {
@@ -666,7 +720,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
 
         Entity = PreparePKM();
-        UpdateLegality(skipMoveRepop: true);
+        UpdateLegality(args: UpdateLegalityArgs.SkipMoveRepopulation);
         if (Legality.Valid)
             return;
         if (!SetSuggestedMetLocation())
@@ -681,13 +735,23 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (!GB_nOT.Visible)
             return;
 
+        byte handler = 0;
         if (sender == GB_OT)
-            Entity.CurrentHandler = 0;
-        else if (TB_HT.Text.Length > 0)
-            Entity.CurrentHandler = 1;
-        UpadteHandlingTrainerBackground(Entity.CurrentHandler);
+            handler = 0;
+        else if (TB_HT.Text.Length != 0)
+            handler = 1;
+        UpdateHandlerSelected(handler);
+    }
 
-        ReloadToFriendshipTextBox(Entity);
+    private void ChangeHandlerIndex(object sender, EventArgs e)
+    {
+        UpdateHandlerSelected((byte)(CB_Handler.SelectedIndex & 1));
+    }
+
+    private void UpdateHandlerSelected(byte handler)
+    {
+        Entity.CurrentHandler = handler;
+        UpdateHandlingTrainerBackground(Entity.CurrentHandler);
     }
 
     private void ClickNature(object sender, EventArgs e)
@@ -695,14 +759,14 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (Entity.Format < 8)
             return;
         if (sender == Label_Nature)
-            CB_Nature.SelectedIndex = CB_StatNature.SelectedIndex;
+            CB_Nature.SelectedIndex = CB_StatAlignment.SelectedIndex;
         else
-            CB_StatNature.SelectedIndex = CB_Nature.SelectedIndex;
+            CB_StatAlignment.SelectedIndex = CB_Nature.SelectedIndex;
     }
 
     private void ClickMoves(object? sender, EventArgs e)
     {
-        UpdateLegality(skipMoveRepop: true);
+        UpdateLegality(args: UpdateLegalityArgs.SkipMoveRepopulation);
         if (sender == GB_CurrentMoves)
         {
             bool random = ModifierKeys == Keys.Control;
@@ -724,31 +788,49 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private bool SetSuggestedMoves(bool random = false, bool silent = false)
     {
-        var m = Entity.GetMoveSet(random);
-        if (m.Length == 0 || m.All(z => z == 0))
+        Span<ushort> moves = stackalloc ushort[4];
+        Entity.GetMoveSet(moves, random);
+        if (moves[0] == 0)
         {
             if (!silent)
                 WinFormsUtil.Alert(MsgPKMSuggestionFormat);
             return false;
         }
 
-        if (Entity.Moves.SequenceEqual(m))
+        Span<ushort> current = stackalloc ushort[4];
+        Entity.GetMoves(current);
+        var same = Entity.IsEgg ? current.SequenceEqual(moves) : IsAllElementsShared(current, moves);
+        if (same)
             return false;
 
         if (!silent)
         {
-            var mv = GameInfo.Strings.Move;
-            var movestrings = m.Select(v => (uint)v >= mv.Count ? MsgProgramError : mv[v]);
-            var msg = string.Join(Environment.NewLine, movestrings);
+            var msg = GetMoveListPrint(moves, GameInfo.Strings.movelist);
             if (DialogResult.Yes != WinFormsUtil.Prompt(MessageBoxButtons.YesNo, MsgPKMSuggestionMoves, msg))
                 return false;
         }
 
-        Entity.SetMoves(m);
+        Entity.SetMoves(moves);
+        if (Entity is ITechRecord tr)
+        {
+            tr.ClearRecordFlags();
+            var la = new LegalityAnalysis(Entity);
+            tr.SetRecordFlags(moves, la.Info.EvoChainsAllGens.Get(Entity.Context));
+        }
         FieldsLoaded = false;
         LoadMoves(Entity);
         ClickPP(this, EventArgs.Empty);
         FieldsLoaded = true;
+        return true;
+    }
+
+    private static bool IsAllElementsShared(ReadOnlySpan<ushort> seq1, ReadOnlySpan<ushort> seq2)
+    {
+        foreach (var entry in seq2)
+        {
+            if (!seq1.Contains(entry))
+                return false;
+        }
         return true;
     }
 
@@ -757,53 +839,67 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (Entity.Format < 6)
             return false;
 
-        var m = Legality.GetSuggestedRelearnMoves();
-        if (Entity.RelearnMoves.SequenceEqual(m) || m.Count != 4)
+        Span<ushort> moves = stackalloc ushort[4];
+        Legality.GetSuggestedRelearnMoves(moves);
+        Span<ushort> current = stackalloc ushort[4];
+        Entity.GetRelearnMoves(current);
+        if (moves.SequenceEqual(current))
             return false;
 
         if (!silent)
         {
-            var mv = GameInfo.Strings.Move;
-            var movestrings = m.Select(v => (uint)v >= mv.Count ? MsgProgramError : mv[v]);
-            var msg = string.Join(Environment.NewLine, movestrings);
+            var msg = GetMoveListPrint(moves, GameInfo.Strings.movelist);
             if (DialogResult.Yes != WinFormsUtil.Prompt(MessageBoxButtons.YesNo, MsgPKMSuggestionRelearn, msg))
                 return false;
         }
 
-        CB_RelearnMove1.SelectedValue = m[0];
-        CB_RelearnMove2.SelectedValue = m[1];
-        CB_RelearnMove3.SelectedValue = m[2];
-        CB_RelearnMove4.SelectedValue = m[3];
+        CB_RelearnMove4.SelectedValue = (int)moves[3];
+        CB_RelearnMove3.SelectedValue = (int)moves[2];
+        CB_RelearnMove2.SelectedValue = (int)moves[1];
+        CB_RelearnMove1.SelectedValue = (int)moves[0];
         return true;
+    }
+
+    private static string GetMoveListPrint(Span<ushort> moves, ReadOnlySpan<string> names)
+    {
+        var sb = new StringBuilder();
+        foreach (var move in moves)
+        {
+            if (move != 0)
+                sb.AppendLine(names[move]);
+        }
+        return sb.ToString();
     }
 
     private bool SetSuggestedMetLocation(bool silent = false)
     {
         var encounter = EncounterSuggestion.GetSuggestedMetInfo(Entity);
-        if (encounter == null || (Entity.Format >= 3 && encounter.Location < 0))
+        if (encounter is null || (Entity.Format >= 3 && encounter.Location == 0))
         {
             if (!silent)
                 WinFormsUtil.Alert(MsgPKMSuggestionNone);
             return false;
         }
 
-        int level = encounter.LevelMin;
-        int location = encounter.Location;
-        int minlvl = EncounterSuggestion.GetLowestLevel(Entity, encounter.LevelMin);
-        if (minlvl == 0)
-            minlvl = level;
+        var level = encounter.LevelMin;
+        int minLevel = EncounterSuggestion.GetLowestLevel(Entity, level);
+        if (minLevel == 0)
+            minLevel = level;
+        ushort location = encounter.Location;
+        if (Entity.Format < 3 && encounter.Encounter is { } x && !x.Version.Contains(GameVersion.C))
+            location = 0;
 
-        if (Entity.CurrentLevel >= minlvl && Entity.Met_Level == level && Entity.Met_Location == location)
+        if (Entity.CurrentLevel >= minLevel && Entity.MetLevel == level && Entity.MetLocation == location)
         {
             if (!encounter.HasGroundTile(Entity.Format) || WinFormsUtil.GetIndex(CB_GroundTile) == (int)encounter.GetSuggestedGroundTile())
                 return false;
         }
-        if (minlvl < level)
-            minlvl = level;
+        if (minLevel < level)
+            minLevel = level;
 
         if (!silent)
         {
-            var suggestions = EntitySuggestionUtil.GetMetLocationSuggestionMessage(Entity, level, location, minlvl);
+            var suggestions = EntitySuggestionUtil.GetMetLocationSuggestionMessage(Entity, level, location, minLevel, encounter.Encounter);
             if (suggestions.Count <= 1) // no suggestion
                 return false;
 
@@ -814,19 +910,26 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
         if (Entity.Format >= 3)
         {
-            Entity.Met_Location = location;
+            Entity.MetLocation = location;
             TB_MetLevel.Text = encounter.GetSuggestedMetLevel(Entity).ToString();
-            CB_MetLocation.SelectedValue = location;
+            CB_MetLocation.SelectedValue = (int)location;
 
             if (encounter.HasGroundTile(Entity.Format))
                 CB_GroundTile.SelectedValue = (int)encounter.GetSuggestedGroundTile();
 
-            if (Entity.Gen6 && Entity.WasEgg && ModifyPKM)
+            if (Entity is { Gen6: true, WasEgg: true } && ModifyPKM)
                 Entity.SetHatchMemory6();
         }
+        else
+        {
+            Entity.MetLocation = location;
+            TB_MetLevel.Text = encounter.GetSuggestedMetLevel(Entity).ToString();
+            CB_MetLocation.SelectedValue = (int)location;
+            CB_MetTimeOfDay.SelectedIndex = location == 0 ? 0 : encounter.GetSuggestedMetTimeOfDay();
+        }
 
-        if (Entity.CurrentLevel < minlvl)
-            TB_Level.Text = minlvl.ToString();
+        if (Entity.CurrentLevel < minLevel)
+            TB_Level.Text = minLevel.ToString();
 
         return true;
     }
@@ -845,7 +948,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void UpdateBall(object sender, EventArgs e)
     {
-        PB_Ball.Image = SpriteUtil.GetBallSprite(WinFormsUtil.GetIndex(CB_Ball));
+        PB_Ball.Image = SpriteUtil.GetBallSprite((byte)WinFormsUtil.GetIndex(CB_Ball));
     }
 
     private void UpdateEXPLevel(object sender, EventArgs e)
@@ -853,30 +956,37 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (ChangingFields)
             return;
         ChangingFields = true;
+
+        var pi = Entity.PersonalInfo;
+        var gr = pi.EXPGrowth;
         if (sender == TB_EXP)
         {
             // Change the Level
-            var input = Util.ToUInt32(TB_EXP.Text);
-            var exp = input;
-            var gr = Entity.PersonalInfo.EXPGrowth;
-            int level = Experience.GetLevel(exp, gr);
-            if (level == 100)
-                exp = Experience.GetEXP(100, gr);
+            var expInput = Util.ToUInt32(TB_EXP.Text);
+            var expCalc = expInput;
+            var lvlExp = Experience.GetLevel(expInput, gr);
+            if (lvlExp == Experience.MaxLevel)
+                expCalc = Experience.GetEXP(Experience.MaxLevel, gr);
 
-            if (level != Util.ToInt32(TB_Level.Text))
-                TB_Level.Text = level.ToString();
-            if (input != exp && !HaX)
-                TB_EXP.Text = exp.ToString();
+            var lvlInput = Experience.ClampLevel((byte)Util.ToInt32(TB_Level.Text));
+            if (lvlInput != lvlExp)
+                TB_Level.Text = lvlExp.ToString();
+            if (expInput != expCalc && !HaX)
+                TB_EXP.Text = expCalc.ToString();
+
+            ExperienceBar.Update(expCalc, gr, lvlExp);
         }
         else
         {
             // Change the XP
-            int input = Util.ToInt32(TB_Level.Text);
-            int level = Math.Max(1, Math.Min(input, 100));
-
-            if (input != level)
+            var input = Util.ToInt32(TB_Level.Text);
+            var level = (byte)Math.Clamp(input, Experience.MinLevel, Experience.MaxLevel);
+            if (input != level && !string.IsNullOrWhiteSpace(TB_Level.Text))
                 TB_Level.Text = level.ToString();
-            TB_EXP.Text = Experience.GetEXP(level, Entity.PersonalInfo.EXPGrowth).ToString();
+
+            var expCalc = Experience.GetEXP(level, gr);
+            TB_EXP.Text = expCalc.ToString();
+            ExperienceBar.Update(expCalc, gr, level);
         }
         ChangingFields = false;
         if (FieldsLoaded) // store values back
@@ -894,8 +1004,8 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
         if (sender == UC_Gender)
             Entity.SetPIDGender(Entity.Gender);
-        else if (sender == CB_Nature && Entity.Nature != WinFormsUtil.GetIndex(CB_Nature))
-            Entity.SetPIDNature(WinFormsUtil.GetIndex(CB_Nature));
+        else if (sender == CB_Nature && Entity.Nature != (Nature)WinFormsUtil.GetIndex(CB_Nature))
+            Entity.SetPIDNature((Nature)WinFormsUtil.GetIndex(CB_Nature));
         else if (sender == BTN_RerollPID)
             Entity.SetPIDGender(Entity.Gender);
         else if (sender == CB_Ability && CB_Ability.SelectedIndex != Entity.PIDAbility && Entity.PIDAbility > -1)
@@ -920,13 +1030,18 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void Update255_MTB(object sender, EventArgs e)
     {
-        if (sender is not MaskedTextBox tb)
+        if (sender is not MaskedTextBox tb || !FieldsLoaded)
             return;
         if (Util.ToInt32(tb.Text) > byte.MaxValue)
             tb.Text = "255";
-        if (sender == TB_Friendship && int.TryParse(TB_Friendship.Text, out var value))
+        if (sender == TB_Friendship && byte.TryParse(TB_Friendship.Text, out var value))
         {
-            UpdateFromFriendshipTextBox(Entity, value);
+            Entity.OriginalTrainerFriendship = value;
+            UpdateStats();
+        }
+        else if (sender == TB_FriendshipHT && byte.TryParse(TB_FriendshipHT.Text, out var level))
+        {
+            Entity.HandlingTrainerFriendship = level;
             UpdateStats();
         }
     }
@@ -941,9 +1056,9 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         if (FieldsLoaded && sender == CB_Form)
         {
-            Entity.Form = CB_Form.SelectedIndex;
-            uint EXP = Experience.GetEXP(Entity.CurrentLevel, Entity.PersonalInfo.EXPGrowth);
-            TB_EXP.Text = EXP.ToString();
+            Entity.Form = (byte)CB_Form.SelectedIndex;
+            uint exp = Experience.GetEXP(Entity.CurrentLevel, Entity.PersonalInfo.EXPGrowth);
+            TB_EXP.Text = exp.ToString();
         }
 
         UpdateStats();
@@ -954,7 +1069,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         {
             if (Entity.Format == 3)
             {
-                Entity.SetPIDUnown3(CB_Form.SelectedIndex);
+                Entity.SetPIDUnown3((byte)CB_Form.SelectedIndex);
                 TB_PID.Text = Entity.PID.ToString("X8");
             }
             else if (Entity.Format == 2)
@@ -970,9 +1085,9 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
         else if (CB_Form.Enabled && EntityGender.GetFromString(CB_Form.Text) < 2)
         {
-            if (CB_Form.Items.Count == 2) // actually M/F; Pumpkaboo formes in German are S,M,L,XL
+            if (CB_Form.Items.Count == 2) // actually M/F; Pumpkaboo forms in German are S,M,L,XL
             {
-                Entity.Gender = CB_Form.SelectedIndex;
+                Entity.Gender = (byte)CB_Form.SelectedIndex;
                 UC_Gender.Gender = Entity.GetSaneGender();
             }
         }
@@ -990,59 +1105,44 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void RefreshFormArguments()
     {
         if (Entity is not IFormArgument f)
+        {
+            L_FormArgument.Visible = false;
             return;
+        }
 
         if (FieldsLoaded)
             FA_Form.SaveArgument(f);
-        FA_Form.LoadArgument(f, Entity.Species, Entity.Form, Entity.Format);
-    }
-
-    private void UpdatePP(object sender, EventArgs e)
-    {
-        if (sender is not ComboBox cb)
-            return;
-        int index = Array.IndexOf(Moves, cb);
-        if (index < 0)
-            index = Array.IndexOf(PPUps, cb);
-        if (index < 0)
-            return;
-
-        RefreshMovePP(index);
-    }
-
-    private void RefreshMovePP(int index)
-    {
-        int move = WinFormsUtil.GetIndex(Moves[index]);
-        var ppUpControl = PPUps[index];
-        int ppUpCount = ppUpControl.SelectedIndex;
-        if (move <= 0)
-        {
-            ppUpControl.SelectedIndex = 0;
-            MovePP[index].Text = 0.ToString();
-        }
-        else
-        {
-            MovePP[index].Text = Entity.GetMovePP(move, ppUpCount).ToString();
-        }
+        L_FormArgument.Visible = FA_Form.LoadArgument(f, Entity.Species, Entity.Form, Entity.Context);
     }
 
     private void UpdatePKRSstrain(object sender, EventArgs e)
     {
-        // Change the PKRS Days to the legal bounds.
-        int currentDuration = CB_PKRSDays.SelectedIndex;
-        CB_PKRSDays.Items.Clear();
+        if (!FieldsLoaded)
+            return;
 
-        var strain = CB_PKRSStrain.SelectedIndex;
-        int max = Pokerus.GetMaxDuration(strain);
+        // Change the PokerusState Days to the legal bounds.
+        ChangePKRSstrainDropDownLists(-1, CB_PKRSStrain.SelectedIndex, CB_PKRSDays.SelectedIndex);
+    }
+
+    private void ChangePKRSstrainDropDownLists(int oldStrain, int newStrain, int currentDuration)
+    {
+        if (oldStrain == newStrain)
+            return;
+
+        CB_PKRSDays.Items.Clear();
+        int max = Pokerus.GetMaxDuration(newStrain);
         for (int day = 0; day <= max; day++)
             CB_PKRSDays.Items.Add(day.ToString());
 
         // Set the days back if they're legal
-        CB_PKRSDays.SelectedIndex = strain == 0 ? 0 : Math.Min(max, currentDuration);
+        CB_PKRSDays.SelectedIndex = Math.Min(max, currentDuration);
     }
 
     private void UpdatePKRSdays(object sender, EventArgs e)
     {
+        if (!FieldsLoaded)
+            return;
+
         var days = CB_PKRSDays.SelectedIndex;
         if (days != 0)
             return;
@@ -1057,19 +1157,22 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void UpdatePKRSCured(object sender, EventArgs e)
     {
+        if (!FieldsLoaded)
+            return;
+
         // Cured PokeRus is toggled
         if (CHK_Cured.Checked)
         {
+            // If we're cured we have to have a strain infection.
+            if (CB_PKRSStrain.SelectedIndex == 0)
+                CB_PKRSStrain.SelectedIndex = 1;
+
             // Has Had PokeRus
             Label_PKRSdays.Visible = CB_PKRSDays.Visible = false;
             CB_PKRSDays.SelectedIndex = 0;
 
             Label_PKRS.Visible = CB_PKRSStrain.Visible = true;
             CHK_Infected.Checked = true;
-
-            // If we're cured we have to have a strain infection.
-            if (CB_PKRSStrain.SelectedIndex == 0)
-                CB_PKRSStrain.SelectedIndex = 1;
         }
         else if (!CHK_Infected.Checked)
         {
@@ -1092,6 +1195,9 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void UpdatePKRSInfected(object sender, EventArgs e)
     {
+        if (!FieldsLoaded)
+            return;
+
         if (CHK_Cured.Checked)
         {
             if (!CHK_Infected.Checked)
@@ -1125,7 +1231,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         // Get Species dependent information
         if (FieldsLoaded)
-            Entity.Species = WinFormsUtil.GetIndex(CB_Species);
+            Entity.Species = (ushort)WinFormsUtil.GetIndex(CB_Species);
         SpeciesIDTip.SetToolTip(CB_Species, Entity.Species.ToString("000"));
         SetAbilityList();
         SetForms();
@@ -1135,14 +1241,14 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
 
         // Recalculate EXP for Given Level
-        uint EXP = Experience.GetEXP(Entity.CurrentLevel, Entity.PersonalInfo.EXPGrowth);
-        TB_EXP.Text = EXP.ToString();
+        uint exp = Experience.GetEXP(Entity.CurrentLevel, Entity.PersonalInfo.EXPGrowth);
+        TB_EXP.Text = exp.ToString();
 
         // Check for Gender Changes
         UC_Gender.Gender = Entity.GetSaneGender();
 
         // If species changes and no nickname, set the new name == speciesName.
-        if (!CHK_Nicknamed.Checked)
+        if (!CHK_NicknamedFlag.Checked)
             UpdateNickname(sender, e);
 
         UpdateLegality();
@@ -1151,19 +1257,19 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void UpdateOriginGame(object sender, EventArgs e)
     {
         GameVersion version = (GameVersion)WinFormsUtil.GetIndex(CB_GameOrigin);
-        if (version.IsValidSavedVersion())
+        if (version is 0 || version.IsValidSavedVersion())
         {
             CheckMetLocationChange(version, Entity.Context);
             if (FieldsLoaded)
-                Entity.Version = (int)version;
+                Entity.Version = version;
         }
 
-        // Visibility logic for Gen 4 ground tile; only show for Gen 4 Pokemon.
+        // Visibility logic for Gen 4 ground tile; only show for Gen 4 Pokémon.
         if (Entity is IGroundTile)
         {
             bool g4 = Entity.Gen4;
             CB_GroundTile.Visible = Label_GroundTile.Visible = g4 && Entity.Format < 7;
-            if (!g4)
+            if (FieldsLoaded && !g4)
                 CB_GroundTile.SelectedValue = (int)GroundTileType.None;
         }
 
@@ -1171,7 +1277,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
 
         PB_Origin.Image = GetOriginSprite(Entity);
-        TID_Trainer.LoadIDValues(Entity);
+        TID_Trainer.LoadTrainer(Entity, Entity.Format);
         UpdateLegality();
     }
 
@@ -1179,6 +1285,13 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         // Does the list of locations need to be changed to another group?
         var group = GameUtil.GetMetLocationVersionGroup(version);
+        if (group is GameVersion.Invalid)
+        {
+            var sav = RequestSaveFile;
+            group = GameUtil.GetMetLocationVersionGroup(sav.Version);
+            if (group is GameVersion.Invalid || version is GameVersion.Any)
+                version = group = context.GetSingleGameVersion();
+        }
         if (group != origintrack || context != originFormat)
             ReloadMetLocations(version, context);
         origintrack = group;
@@ -1188,32 +1301,37 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void ReloadMetLocations(GameVersion version, EntityContext context)
     {
         var metList = GameInfo.GetLocationList(version, context, egg: false);
-        CB_MetLocation.DataSource = new BindingSource(metList, null);
+        CB_MetLocation.DataSource = new BindingSource(metList, string.Empty);
         CB_MetLocation.DropDownWidth = GetWidth(metList, CB_MetLocation.Font);
 
         var eggList = GameInfo.GetLocationList(version, context, egg: true);
-        CB_EggLocation.DataSource = new BindingSource(eggList, null);
+        CB_EggLocation.DataSource = new BindingSource(eggList, string.Empty);
         CB_EggLocation.DropDownWidth = GetWidth(eggList, CB_EggLocation.Font);
 
-        static int GetWidth(IEnumerable<ComboItem> items, Font f) =>
-            items.Max(z => TextRenderer.MeasureText(z.Text, f).Width) +
-            SystemInformation.VerticalScrollBarWidth;
+        static int GetWidth(IReadOnlyCollection<ComboItem> items, Font f)
+        {
+            ArgumentOutOfRangeException.ThrowIfZero(items.Count);
+            return items.Max(z => TextRenderer.MeasureText(z.Text, f).Width) + SystemInformation.VerticalScrollBarWidth;
+        }
 
         if (FieldsLoaded)
         {
             SetMarkings(); // Set/Remove the Nativity marking when gamegroup changes too
-            int metLoc = EncounterSuggestion.GetSuggestedTransferLocation(Entity);
-            int eggLoc = CHK_AsEgg.Checked
+            var metLoc = EncounterSuggestion.TryGetSuggestedTransferLocation(Entity);
+            var eggLoc = CHK_AsEgg.Checked
                 ? EncounterSuggestion.GetSuggestedEncounterEggLocationEgg(Entity, true)
                 : LocationEdits.GetNoneLocation(Entity);
 
-            CB_MetLocation.SelectedValue = Math.Max(0, metLoc);
-            CB_EggLocation.SelectedValue = eggLoc;
+            CB_MetLocation.SelectedValue = (int)Math.Max((ushort)0, metLoc);
+            CB_EggLocation.SelectedValue = (int)eggLoc;
         }
         else
         {
             ValidateChildren(); // hacky validation forcing
         }
+
+        CB_MetLocation.Select(0, 0);
+        CB_EggLocation.Select(0, 0);
     }
 
     private void UpdateExtraByteValue(object sender, EventArgs e)
@@ -1241,16 +1359,16 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         TB_ExtraByte.Text = Entity.Data[offset].ToString();
     }
 
-    public void ChangeNature(int newNature)
+    public void ChangeNature(Nature newNature)
     {
         if (Entity.Format < 3)
             return;
 
-        var cb = Entity.Format >= 8 ? CB_StatNature : CB_Nature;
-        cb.SelectedValue = newNature;
+        var cb = Entity.Format >= 8 ? CB_StatAlignment : CB_Nature;
+        cb.SelectedValue = (int)newNature;
     }
 
-    private void UpdateNatureModification(ComboBox cb, int nature)
+    private void UpdateNatureModification(ComboBox cb, Nature nature)
     {
         string text = Stats.UpdateNatureModification(nature);
         NatureTip.SetToolTip(cb, text);
@@ -1261,23 +1379,47 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (!FieldsLoaded)
             return;
 
-        Entity.Nickname = TB_Nickname.Text;
-        if (CHK_Nicknamed.Checked)
+        RefreshFontWarningButton();
+        var update = TB_Nickname.Text;
+        Entity.Nickname = update;
+        if (CHK_NicknamedFlag.Checked)
             return;
 
-        int species = WinFormsUtil.GetIndex(CB_Species);
-        if (species < 1 || species > Entity.MaxSpeciesID)
+        var species = (ushort)WinFormsUtil.GetIndex(CB_Species);
+        if (species is 0 || species > Entity.MaxSpeciesID)
             return;
 
-        if (CHK_IsEgg.Checked)
+        if (!IsPossibleNotNicknamed(Entity, update))
+            CHK_NicknamedFlag.Checked = true;
+    }
+
+    private static bool IsPossibleNotNicknamed(PKM pk, ReadOnlySpan<char> current)
+    {
+        var species = pk.Species;
+        if (pk.IsEgg)
             species = 0; // get the egg name.
 
-        if (SpeciesName.IsNicknamedAnyLanguage(species, TB_Nickname.Text, Entity.Format))
-            CHK_Nicknamed.Checked = true;
+        var context = pk.Context;
+        if (!SpeciesName.IsNicknamedAnyLanguage(species, current, context))
+            return true;
+
+        // Auto-decapitalization did not happen until Gen6.
+        // If transferred from Gen3/4=>Gen5, it can be either ALL-CAPS or decapitalized.
+        if (pk.IsEgg)
+            return false;
+        if (context != EntityContext.Gen5 || species > 493 || pk.Gen5)
+            return false;
+
+        if (!SpeciesName.IsNicknamedAnyLanguage(species, current, EntityContext.Gen4))
+            return true;
+        return false;
     }
 
     private void UpdateNickname(object sender, EventArgs e)
     {
+        if (!FieldsLoaded)
+            return;
+
         if (sender == Label_Species)
         {
             switch (ModifierKeys)
@@ -1289,77 +1431,87 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             }
         }
 
-        if (CHK_Nicknamed.Checked)
+        if (CHK_NicknamedFlag.Checked)
             return;
 
         // Fetch Current Species and set it as Nickname Text
-        int species = WinFormsUtil.GetIndex(CB_Species);
-        if ((uint)(species - 1) >= Entity.MaxSpeciesID)
-        { TB_Nickname.Text = string.Empty; return; }
+        var species = (ushort)WinFormsUtil.GetIndex(CB_Species);
+        if (species is 0 || species > Entity.MaxSpeciesID)
+        {
+            TB_Nickname.Text = string.Empty;
+            return;
+        }
 
-        if (CHK_IsEgg.Checked)
-            species = 0; // get the egg name.
-
-        // If name is that of another language, don't replace the nickname
-        if (sender != CB_Language && species != 0 && !SpeciesName.IsNicknamedAnyLanguage(species, TB_Nickname.Text, Entity.Format))
+        var current = TB_Nickname.Text;
+        if (IsPossibleNotNicknamed(Entity, current))
             return;
 
-        int lang = WinFormsUtil.GetIndex(CB_Language);
-        TB_Nickname.Text = SpeciesName.GetSpeciesNameGeneration(species, lang, Entity.Format);
+        string nickname;
+        int language = WinFormsUtil.GetIndex(CB_Language);
+        if (CHK_IsEgg.Checked)
+        {
+            // Get the egg name.
+            nickname = SpeciesName.GetEggName(language, Entity.Format);
+        }
+        else
+        {
+            // If name is that of another language, don't replace the nickname
+            if (sender != CB_Language && !SpeciesName.IsNicknamedAnyLanguage(species, current, Entity.Context))
+                return;
+            nickname = SpeciesName.GetSpeciesNameGeneration(species, language, Entity.Format);
+        }
+
+        TB_Nickname.Text = nickname;
         if (Entity is GBPKM pk)
-            pk.SetNotNicknamed();
+            pk.SetNotNicknamed(language);
     }
 
     private void UpdateNicknameClick(object sender, MouseEventArgs e)
     {
-        TextBox tb = sender as TextBox ?? TB_Nickname;
-        // Special Character Form
         if (ModifierKeys != Keys.Control)
             return;
 
-        var sav = RequestSaveFile;
-
+        if (sender is not TextBox tb)
+            return;
+        // Open Trash/Special Character form
+        // Set the string back to the entity in the right spot, so the span fetch has the latest data.
+        Span<byte> trash;
         if (tb == TB_Nickname)
         {
             Entity.Nickname = tb.Text;
-            var span = Entity.Nickname_Trash;
-            var d = new TrashEditor(tb, span, sav);
-            d.ShowDialog();
-            tb.Text = d.FinalString;
-            d.FinalBytes.CopyTo(span);
+            trash = Entity.NicknameTrash;
         }
         else if (tb == TB_OT)
         {
-            Entity.OT_Name = tb.Text;
-            var span = Entity.OT_Trash;
-            var d = new TrashEditor(tb, span, sav);
-            d.ShowDialog();
-            tb.Text = d.FinalString;
-            d.FinalBytes.CopyTo(span);
+            Entity.OriginalTrainerName = tb.Text;
+            trash = Entity.OriginalTrainerTrash;
         }
         else if (tb == TB_HT)
         {
-            Entity.HT_Name = tb.Text;
-            var span = Entity.HT_Trash;
-            var d = new TrashEditor(tb, span, sav);
-            d.ShowDialog();
-            tb.Text = d.FinalString;
-            d.FinalBytes.CopyTo(span);
+            Entity.HandlingTrainerName = tb.Text;
+            trash = Entity.HandlingTrainerTrash;
         }
+        else
+        {
+            return;
+        }
+
+        TrashEditor.Show(tb, Entity, trash);
     }
 
     private void UpdateNotOT(object sender, EventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(TB_HT.Text))
+        var text = TB_HT.Text;
+        if (string.IsNullOrWhiteSpace(text))
         {
             ClickGT(GB_OT, EventArgs.Empty); // Switch CT over to OT.
             UC_HTGender.Visible = false;
             UC_HTGender.Gender = 0;
-            ReloadToFriendshipTextBox(Entity);
+            ToggleHandlerVisibility(false);
         }
         else if (!UC_HTGender.Visible)
         {
-            UC_HTGender.Visible = true;
+            ToggleHandlerVisibility(true);
         }
     }
 
@@ -1373,7 +1525,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
 
         if (Entity.Format == 3 && CHK_IsEgg.Checked)
-            Entity.OT_Name = TB_OT.Text; // going to be remapped
+            Entity.OriginalTrainerName = TB_OT.Text; // going to be remapped
 
         Entity.IsEgg = CHK_IsEgg.Checked;
         if (CHK_IsEgg.Checked)
@@ -1390,26 +1542,31 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             if (Entity.Format >= 4)
             {
                 var sav = SaveFileRequested.Invoke(this, e);
-                bool isTraded = sav.OT != TB_OT.Text || sav.TID != Entity.TID || sav.SID != Entity.SID;
-                var loc = isTraded ? Locations.TradedEggLocation(sav.Generation, sav.Version) : LocationEdits.GetNoneLocation(Entity);
-                CB_MetLocation.SelectedValue = loc;
+                bool isTraded = sav.OT != TB_OT.Text || sav.TID16 != Entity.TID16 || sav.SID16 != Entity.SID16;
+                var loc = isTraded
+                    ? Locations.TradedEggLocation(sav.Generation, sav.Version)
+                    : LocationEdits.GetNoneLocation(Entity);
+                CB_MetLocation.SelectedValue = (int)loc;
             }
             else if (Entity.Format == 3)
             {
                 CB_Language.SelectedValue = Entity.Language; // JPN
-                TB_OT.Text = Entity.OT_Name;
+                TB_OT.Text = Entity.OriginalTrainerName;
             }
 
-            CHK_Nicknamed.Checked = EggStateLegality.IsNicknameFlagSet(Entity);
-            TB_Nickname.Text = SpeciesName.GetSpeciesNameGeneration(0, WinFormsUtil.GetIndex(CB_Language), Entity.Format);
+            CHK_NicknamedFlag.Checked = EggStateLegality.IsNicknameFlagSet(Entity);
+            TB_Nickname.Text = SpeciesName.GetEggName(WinFormsUtil.GetIndex(CB_Language), Entity.Format);
 
             // Wipe egg memories
             if (Entity.Format >= 6 && ModifyPKM)
                 Entity.ClearMemories();
+
+            if (Entity is PK9) // Eggs in S/V have a Version value of 0 until hatched.
+                CB_GameOrigin.SelectedValue = 0;
         }
         else // Not Egg
         {
-            if (!CHK_Nicknamed.Checked)
+            if (!CHK_NicknamedFlag.Checked)
                 UpdateNickname(this, EventArgs.Empty);
 
             TB_Friendship.Text = Entity.PersonalInfo.BaseFriendship.ToString();
@@ -1424,11 +1581,12 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             else
             {
                 CAL_MetDate.Value = CAL_EggDate.Value;
-                CB_MetLocation.SelectedValue = EncounterSuggestion.GetSuggestedEggMetLocation(Entity);
+                CB_MetLocation.SelectedValue = (int)EncounterSuggestion.GetSuggestedEggMetLocation(Entity);
             }
 
-            if (TB_Nickname.Text == SpeciesName.GetSpeciesNameGeneration(0, WinFormsUtil.GetIndex(CB_Language), Entity.Format))
-                CHK_Nicknamed.Checked = false;
+            var nick = SpeciesName.GetEggName(WinFormsUtil.GetIndex(CB_Language), Entity.Format);
+            if (TB_Nickname.Text == nick)
+                CHK_NicknamedFlag.Checked = false;
         }
 
         UpdateNickname(this, EventArgs.Empty);
@@ -1445,14 +1603,14 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
             CAL_EggDate.Value = DateTime.Now;
 
-            bool isTradedEgg = Entity.IsEgg && Entity.Version != (int)RequestSaveFile.Version;
+            bool isTradedEgg = Entity.IsEgg && Entity.Version != RequestSaveFile.Version;
             CB_EggLocation.SelectedValue = EncounterSuggestion.GetSuggestedEncounterEggLocationEgg(Entity, isTradedEgg);
             return;
         }
         // Remove egg met data
         CHK_IsEgg.Checked = false;
         CAL_EggDate.Value = new DateTime(2000, 01, 01);
-        CB_EggLocation.SelectedValue = LocationEdits.GetNoneLocation(Entity);
+        CB_EggLocation.SelectedValue = (int)LocationEdits.GetNoneLocation(Entity);
 
         UpdateLegality();
     }
@@ -1466,10 +1624,10 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void UpdateShiny(bool changePID)
     {
         Entity.PID = Util.GetHexValue(TB_PID.Text);
-        Entity.Nature = WinFormsUtil.GetIndex(CB_Nature);
+        Entity.Nature = (Nature)WinFormsUtil.GetIndex(CB_Nature);
         Entity.Gender = UC_Gender.Gender;
-        Entity.Form = CB_Form.SelectedIndex;
-        Entity.Version = WinFormsUtil.GetIndex(CB_GameOrigin);
+        Entity.Form = (byte)CB_Form.SelectedIndex;
+        Entity.Version = (GameVersion)WinFormsUtil.GetIndex(CB_GameOrigin);
 
         if (Entity.Format > 2)
         {
@@ -1481,10 +1639,10 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             };
             if (changePID)
             {
-                CommonEdits.SetShiny(Entity, type);
+                Entity.SetShiny(type);
                 TB_PID.Text = Entity.PID.ToString("X8");
 
-                int gen = Entity.Generation;
+                var gen = Entity.Generation;
                 bool pre3DS = gen is 3 or 4 or 5;
                 if (pre3DS && Entity.Format >= 6)
                     TB_EC.Text = TB_PID.Text;
@@ -1492,13 +1650,13 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             else
             {
                 Entity.SetShinySID(type);
-                TID_Trainer.UpdateSID();
+                TID_Trainer.LoadTrainer();
             }
         }
         else
         {
             Entity.SetShiny();
-            Stats.LoadIVs(Entity.IVs);
+            LoadIVs(Entity);
             Stats.UpdateIVs(this, EventArgs.Empty);
         }
 
@@ -1512,20 +1670,20 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (Entity.Format <= 2)
             return;
 
-        TID_Trainer.UpdateTSV();
+        TID_Trainer.SetToolTip();
 
         Entity.PID = Util.GetHexValue(TB_PID.Text);
         var tip = $"PSV: {Entity.PSV:d4}";
         if (Entity.IsShiny)
             tip += $" | Xor = {Entity.ShinyXor}";
-        Tip3.SetToolTip(TB_PID, tip);
+        TipPIDInfo.SetToolTip(TB_PID, tip);
     }
 
     private void Update_ID(object? sender, EventArgs e)
     {
         if (!FieldsLoaded)
             return;
-        // Trim out nonhex characters
+        // Trim out non-hexadecimal characters
         TB_PID.Text = (Entity.PID = Util.GetHexValue(TB_PID.Text)).ToString("X8");
         TB_EC.Text = (Entity.EncryptionConstant = Util.GetHexValue(TB_EC.Text)).ToString("X8");
 
@@ -1536,7 +1694,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         {
             FieldsLoaded = false;
             Entity.PID = Util.GetHexValue(TB_PID.Text);
-            CB_Nature.SelectedValue = Entity.Nature;
+            CB_Nature.SelectedValue = (int)Entity.Nature;
             UC_Gender.Gender = Entity.Gender;
             UpdateNatureModification(CB_Nature, Entity.Nature);
             FieldsLoaded = true;
@@ -1579,7 +1737,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
         FieldsLoaded = false;
         NUD_Purification.Value = CHK_Shadow.Checked ? 1 : Entity is CK3 && NUD_ShadowID.Value != 0 ? CK3.Purified : 0;
-        ((IShadowPKM)Entity).Purification = (int)NUD_Purification.Value;
+        ((IShadowCapture)Entity).Purification = (int)NUD_Purification.Value;
         UpdatePreviewSprite?.Invoke(this, EventArgs.Empty);
         FieldsLoaded = true;
     }
@@ -1587,14 +1745,22 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void ValidateComboBox(ComboBox cb)
     {
         if (cb.Text.Length == 0 && cb.Items.Count > 0)
+        {
             cb.SelectedIndex = 0;
-        else if (cb.SelectedValue == null)
+        }
+        else if (cb.SelectedValue is null)
+        {
+            cb.ForeColor = Color.Black;
             cb.BackColor = Draw.InvalidSelection;
+        }
         else
+        {
+            cb.ResetForeColor();
             cb.ResetBackColor();
+        }
     }
 
-    private void ValidateComboBox(object sender, CancelEventArgs e)
+    private void ValidateComboBox(object? sender, CancelEventArgs e)
     {
         if (sender is not ComboBox cb)
             return;
@@ -1603,7 +1769,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         UpdateSprite();
     }
 
-    private void ValidateComboBox2(object sender, EventArgs e)
+    private void ValidateComboBox2(object? sender, EventArgs e)
     {
         if (!FieldsLoaded)
             return;
@@ -1621,15 +1787,15 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         {
             if (Entity.Format <= 4)
                 UpdateRandomPID(sender, e);
-            Entity.Nature = WinFormsUtil.GetIndex(CB_Nature);
+            Entity.Nature = (Nature)WinFormsUtil.GetIndex(CB_Nature);
             UpdateNatureModification(CB_Nature, Entity.Nature);
             Stats.UpdateIVs(sender, EventArgs.Empty); // updating Nature will trigger stats to update as well
             UpdateLegality();
         }
-        else if (sender == CB_StatNature)
+        else if (sender == CB_StatAlignment)
         {
-            Entity.StatNature = WinFormsUtil.GetIndex(CB_StatNature);
-            UpdateNatureModification(CB_StatNature, Entity.StatNature);
+            Entity.StatAlignment = (Nature)WinFormsUtil.GetIndex(CB_StatAlignment);
+            UpdateNatureModification(CB_StatAlignment, Entity.StatAlignment);
             Stats.UpdateIVs(sender, EventArgs.Empty); // updating Nature will trigger stats to update as well
             UpdateLegality();
         }
@@ -1639,7 +1805,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         }
     }
 
-    private void ValidateMove(object sender, EventArgs e)
+    private void ValidateMove(object? sender, EventArgs e)
     {
         if (!FieldsLoaded || sender is not ComboBox cb)
             return;
@@ -1647,59 +1813,76 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         ValidateComboBox(cb);
 
         // Store value back, repopulate legality.
-        int value = WinFormsUtil.GetIndex(cb);
-        int index = Array.IndexOf(Moves, cb);
+        var value = (ushort)WinFormsUtil.GetIndex(cb);
+        int index = Array.FindIndex(Moves, z => z.CB_Move == cb);
         if (index != -1)
         {
-            UpdatePP(sender, e);
+            Moves[index].HealPP(Entity);
             Entity.SetMove(index, value);
         }
-        else if ((index = Array.IndexOf(Relearn, cb)) != -1)
+        else if ((index = Relearn.IndexOf(cb)) != -1)
         {
             Entity.SetRelearnMove(index, value);
         }
         else if (cb == CB_AlphaMastered && Entity is PA8 pa8)
         {
-            pa8.AlphaMove = (ushort)value;
+            pa8.AlphaMove = value;
         }
         else
         {
             // Shouldn't hit here.
             throw new InvalidOperationException();
         }
-        UpdateLegality(skipMoveRepop: true);
+        UpdateLegality(args: UpdateLegalityArgs.SkipMoveRepopulation);
     }
 
-    private void ValidateMovePaint(object sender, DrawItemEventArgs e)
+    private static readonly Brush BrushLegal = new SolidBrush(WinFormsUtil.ColorValid);
+
+    private void ValidateMovePaint(object? sender, DrawItemEventArgs e)
     {
-        if (e.Index < 0)
+        if (sender is not ComboBox cb || e.Index < 0 || cb.Items[e.Index] is not ComboItem item)
             return;
 
-        var (text, value) = (ComboItem)((ComboBox)sender).Items[e.Index];
-        var valid = LegalMoveSource.Info.CanLearn(value) && !HaX;
+        var (text, value) = item;
+        var valid = LegalMoveSource.Info.CanLearn((ushort)value) && !HaX;
 
-        var current = (e.State & DrawItemState.Selected) != 0;
-        var brush = Draw.Brushes.GetBackground(valid, current);
-        var textColor = Draw.GetText(current);
+        var highlight = (e.State & DrawItemState.Selected) != 0;
+        var brush = highlight ? SystemBrushes.MenuHighlight : (valid ? BrushLegal : SystemBrushes.ControlLightLight);
+        var textColor = highlight && !Application.IsDarkModeEnabled ? SystemColors.HighlightText : SystemColors.ControlText;
 
-        DrawMoveRectangle(e, brush, text, textColor);
+        var type = MoveInfo.GetType((ushort)value, Entity.Context);
+        var moveTypeIcon = TypeSpriteUtil.GetTypeSpriteIconSmall(type);
+        DrawMoveRectangle(e, brush, text, textColor, moveTypeIcon);
     }
 
-    private static void DrawMoveRectangle(DrawItemEventArgs e, Brush brush, string text, Color textColor)
+    private static void DrawMoveRectangle(DrawItemEventArgs e, Brush backBrush, ReadOnlySpan<char> foreText, Color textColor, Bitmap? icon)
     {
-        var rec = new Rectangle(e.Bounds.X - 1, e.Bounds.Y, e.Bounds.Width + 1, e.Bounds.Height + 0); // 1px left
-        e.Graphics.FillRectangle(brush, rec);
+        var g = e.Graphics;
+        var rec = e.Bounds;
+        if (icon is not null)
+        {
+            var dim = rec.Height;
+            g.DrawImage(icon, rec with { Width = dim }); // Left side of the rectangle.
+            rec = rec with { X = rec.X + dim, Width = rec.Width - dim };
+        }
+        else
+        {
+            rec = rec with { X = rec.X + 1, Width = rec.Width - 1 }; // 1px left
+        }
+
+        g.FillRectangle(backBrush, rec);
 
         const TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.ExpandTabs | TextFormatFlags.SingleLine;
-        TextRenderer.DrawText(e.Graphics, text, e.Font, rec, textColor, flags);
+        TextRenderer.DrawText(g, foreText, e.Font, rec, textColor, flags);
     }
 
-    private void MeasureDropDownHeight(object sender, MeasureItemEventArgs e) => e.ItemHeight = CB_RelearnMove1.ItemHeight;
+    private void MeasureDropDownHeight(object? sender, MeasureItemEventArgs e) => e.ItemHeight = CB_RelearnMove1.ItemHeight;
 
-    private void ValidateMoveDropDown(object sender, EventArgs e)
+    private void ValidateMoveDropDown(object? sender, EventArgs e)
     {
-        var s = (ComboBox) sender;
-        var index = Array.IndexOf(Moves, s);
+        if (sender is not ComboBox s)
+            return;
+        var index = Array.FindIndex(Moves, z => z.CB_Move == s);
 
         // Populating the combobox drop-down list is deferred until the dropdown is entered into at least once.
         // Saves some lag delays when viewing a pk.
@@ -1711,9 +1894,11 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     private void SetMoveDataSource(ComboBox c)
     {
+        FieldsLoaded = false;
         var index = WinFormsUtil.GetIndex(c);
-        c.DataSource = new BindingSource(LegalMoveSource.Display.DataSource, null);
+        c.DataSource = new BindingSource(LegalMoveSource.Display.DataSource, string.Empty);
         c.SelectedValue = index;
+        FieldsLoaded = true;
     }
 
     private void ValidateLocation(object sender, EventArgs e)
@@ -1722,8 +1907,8 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
             return;
 
         ValidateComboBox((ComboBox)sender);
-        Entity.Met_Location = WinFormsUtil.GetIndex(CB_MetLocation);
-        Entity.Egg_Location = WinFormsUtil.GetIndex(CB_EggLocation);
+        Entity.MetLocation = (ushort)WinFormsUtil.GetIndex(CB_MetLocation);
+        Entity.EggLocation = (ushort)WinFormsUtil.GetIndex(CB_EggLocation);
         UpdateLegality();
     }
 
@@ -1732,34 +1917,71 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         using var form = new RibbonEditor(Entity);
         form.ShowDialog();
+
+        UpdateAffixed(Entity);
     }
 
-    private void OpenMedals(object sender, EventArgs e)
+    private void UpdateAffixed(PKM pk)
     {
-        using var form = new SuperTrainingEditor(Entity);
+        if (pk is IRibbonSetAffixed a)
+        {
+            var affixed = a.AffixedRibbon;
+            if (affixed != AffixedRibbon.None)
+            {
+                PB_Affixed.Image = RibbonSpriteUtil.GetRibbonSprite((RibbonIndex)affixed);
+                PB_Affixed.Visible = true;
+                // Update the tooltip with the ribbon name.
+                var name = GameInfo.Strings.Ribbons.GetNameSafe($"Ribbon{(RibbonIndex)affixed}", out var result) ? result : affixed.ToString();
+                if (pk is IRibbonSetMarks { RibbonMarkCount: > 1 } y)
+                    name += Environment.NewLine + GetRibbonAffixCount(y);
+                AffixedTip.SetToolTip(PB_Affixed, name);
+                return;
+            }
+            if (pk is IRibbonSetMarks { RibbonMarkCount: not 0 } x)
+            {
+                PB_Affixed.Image = Properties.Resources.ribbon_affix_none;
+                PB_Affixed.Visible = true;
+                AffixedTip.SetToolTip(PB_Affixed, GetRibbonAffixCount(x));
+                return;
+            }
+            static string GetRibbonAffixCount(IRibbonSetMarks x) => $"{x.RibbonMarkCount} available to affix.";
+        }
+        PB_Affixed.Visible = false;
+    }
+
+    private void OpenSuperTrainRegimen(object sender, EventArgs e)
+    {
+        if (Entity is not ISuperTrainRegimen st)
+            return;
+        using var form = new SuperTrainingEditor(st);
         form.ShowDialog();
     }
 
     private void OpenHistory(object sender, EventArgs e)
     {
-        // Write back current values
-        Entity.HT_Name = TB_HT.Text;
-        Entity.OT_Name = TB_OT.Text;
-        Entity.IsEgg = CHK_IsEgg.Checked;
-        UpdateFromFriendshipTextBox(Entity, Util.ToInt32(TB_Friendship.Text));
+        // Write back current values that will be displayed in the popup form
+        var pk = Entity;
+        pk.IsEgg = CHK_IsEgg.Checked;
+        pk.OriginalTrainerName = TB_OT.Text;
+        pk.OriginalTrainerFriendship = (byte)Util.ToInt32(TB_Friendship.Text);
+        pk.HandlingTrainerName = TB_HT.Text;
+        pk.HandlingTrainerFriendship = (byte)Util.ToInt32(TB_FriendshipHT.Text);
+        pk.CurrentHandler = (byte)WinFormsUtil.GetIndex(CB_Handler);
         using var form = new MemoryAmie(Entity);
         form.ShowDialog();
-        ReloadToFriendshipTextBox(Entity);
+
+        TB_Friendship.Text = pk.OriginalTrainerFriendship.ToString();
+        TB_FriendshipHT.Text = pk.HandlingTrainerFriendship.ToString();
     }
 
     private void B_Records_Click(object sender, EventArgs e)
     {
-        if (Entity is not ITechRecord8 t)
+        if (Entity is not ITechRecord t)
             return;
 
         if (ModifierKeys == Keys.Shift)
         {
-            t.SetRecordFlags(Entity.Moves);
+            t.SetRecordFlags(Entity, TechnicalRecordApplicatorOption.LegalCurrent);
             UpdateLegality();
             return;
         }
@@ -1777,14 +1999,32 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (ModifierKeys == Keys.Shift)
         {
             m.ClearMoveShopFlags();
-            if (Legality.EncounterMatch is IMasteryInitialMoveShop8 enc)
-                enc.SetInitialMastery(Entity);
+            var enc = Legality.EncounterMatch;
+            if (enc is IMasteryInitialMoveShop8 shop)
+                shop.SetInitialMastery(Entity, enc);
             m.SetMoveShopFlags(Entity);
             UpdateLegality();
             return;
         }
 
         using var form = new MoveShopEditor(m, m, Entity);
+        form.ShowDialog();
+        UpdateLegality();
+    }
+
+    private void B_PlusRecord_Click(object sender, EventArgs e)
+    {
+        if (Entity is not IPlusRecord m || Entity.PersonalInfo is not IPermitPlus p)
+            return;
+
+        if (ModifierKeys.HasFlag(Keys.Shift))
+        {
+            m.SetPlusFlags(Entity, p, PlusRecordApplicatorOption.LegalCurrent);
+            UpdateLegality();
+            return;
+        }
+
+        using var form = new PlusRecordEditor(m, p, Entity);
         form.ShowDialog();
         UpdateLegality();
     }
@@ -1804,74 +2044,89 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     private void ToggleInterface(PKM t)
     {
         var pb7 = t is PB7;
-        int gen = t.Format;
-        FLP_Purification.Visible = FLP_ShadowID.Visible = t is IShadowPKM;
-        bool sizeCP = gen >= 8 || pb7;
-        FLP_SizeCP.Visible = sizeCP;
+        var format = t.Format;
+        L_ShadowID.Visible = NUD_ShadowID.Visible = L_HeartGauge.Visible = FLP_Purification.Visible = t is IShadowCapture;
+        bool sizeCP = format >= 8 || pb7;
+        SizeCP.Visible = SizeCP.TabStop = sizeCP;
         if (sizeCP)
             SizeCP.ToggleVisibility(t);
         PB_Favorite.Visible = t is IFavorite;
         PB_BattleVersion.Visible = FLP_BattleVersion.Visible = t is IBattleVersion;
-        BTN_History.Visible = gen >= 6 && !pb7;
-        BTN_Ribbons.Visible = gen >= 3 && !pb7;
-        BTN_Medals.Visible = gen is 6 or 7 && !pb7;
-        FLP_Country.Visible = FLP_SubRegion.Visible = FLP_3DSRegion.Visible = t is IRegionOrigin;
-        FLP_OriginalNature.Visible = gen >= 8;
-        B_Records.Visible = t is ITechRecord8;
+        BTN_History.Visible = format >= 6 && !pb7;
+        BTN_Ribbons.Visible = format >= 3; // pb7 has ribbons on HOME Meltan lol
+        BTN_Medals.Visible = format is 6 or 7 && !pb7;
+        L_ArrivedDateTime.Visible = CAL_ReceivedDateTime.Visible = pb7;
+        Label_Country.Visible = CB_Country.Visible = Label_SubRegion.Visible = CB_SubRegion.Visible = Label_3DSRegion.Visible = CB_3DSReg.Visible = t is IRegionOrigin;
+        FLP_Spirit7b.Visible = FLP_Mood7b.Visible = pb7;
+        B_RelearnFlags.Visible = t is ITechRecord;
         B_MoveShop.Visible = t is IMoveShop8Mastery;
-        CB_HTLanguage.Visible = gen >= 8;
+        B_PlusRecord.Visible = t is IPlusRecord;
         L_AlphaMastered.Visible = CB_AlphaMastered.Visible = t is PA8;
+        FLP_ObedienceLevel.Visible = t is IObedienceLevel;
         Contest.ToggleInterface(Entity, Entity.Context);
+        if (t is not IFormArgument)
+            L_FormArgument.Visible = false;
+        StatusView.Visible = Main.Settings.EntityEditor.ShowStatusCondition;
+        ExperienceBar.Visible = Main.Settings.EntityEditor.ShowExperienceBar;
 
+        DEV_Ability.Enabled = DEV_Ability.Visible = DEV_Ability.TabStop = (format > 3 && HaX) || t is PA9;
         ToggleInterface(Entity.Format);
     }
 
-    private void ToggleSecrets(bool hidden, int gen)
+    private void ToggleSecrets(bool hidden, byte format)
     {
-        Label_EncryptionConstant.Visible = BTN_RerollEC.Visible = TB_EC.Visible = gen >= 6 && !hidden;
-        BTN_RerollPID.Visible = Label_PID.Visible = TB_PID.Visible = gen >= 3 && !hidden;
-        TB_HomeTracker.Visible = L_HomeTracker.Visible = gen >= 8 && !hidden;
+        Label_EncryptionConstant.Visible = FLP_EncryptionConstant.Visible = format >= 6 && !hidden;
+        BTN_RerollPID.Visible = Label_PID.Visible = TB_PID.Visible = format >= 3 && !hidden;
+        L_HomeTracker.Visible = TB_HomeTracker.Visible = format >= 8 && !hidden;
     }
 
-    private void ToggleInterface(int gen)
+    private void ToggleInterface(byte format)
     {
-        ToggleSecrets(HideSecretValues, gen);
-        GB_nOT.Visible = GB_RelearnMoves.Visible = gen >= 6;
+        ToggleSecrets(HideSecretValues, format);
+        Label_PrevOT.Visible = FLP_HT.Visible = GB_nOT.Visible = FLP_Handler.Visible =
+        FLP_Relearn4.Visible = FLP_Relearn3.Visible = FLP_Relearn2.Visible = FLP_Relearn1.Visible = GB_RelearnMoves.Visible = format >= 6;
 
-        PB_Origin.Visible = gen >= 6;
-        FLP_NSparkle.Visible = L_NSparkle.Visible = CHK_NSparkle.Visible = gen == 5;
+        PB_Origin.Visible = format >= 6;
+        L_NSparkle.Visible = CHK_NSparkle.Visible = FLP_PokeStarFame.Visible = format == 5;
 
-        CHK_AsEgg.Visible = GB_EggConditions.Visible = PB_Mark5.Visible = PB_Mark6.Visible = gen >= 4;
-        FLP_ShinyLeaf.Visible = L_ShinyLeaf.Visible = ShinyLeaf.Visible = gen == 4;
+        CHK_AsEgg.Visible = GB_EggConditions.Visible = PB_Mark5.Visible = PB_Mark6.Visible = format >= 4;
+        ShinyLeaf.Visible = FLP_WalkingMood.Visible = format == 4;
 
-        DEV_Ability.Enabled = DEV_Ability.Visible = gen > 3 && HaX;
-        CB_Ability.Visible = !DEV_Ability.Enabled && gen >= 3;
-        FLP_Nature.Visible = gen >= 3;
-        FLP_Ability.Visible = gen >= 3;
-        GB_ExtraBytes.Visible = GB_ExtraBytes.Enabled = gen >= 3;
-        GB_Markings.Visible = gen >= 3;
-        CB_Form.Enabled = gen >= 3;
-        FA_Form.Visible = gen >= 6;
+        // Ensure marking order is correct for gen3|future. Gen3 has square second, not third.
+        var orderCorrect = (format == 3) == (PB_Mark3.Location.X < PB_Mark2.Location.X);
+        if (!orderCorrect) // Swap the locations of the marks.
+            (PB_Mark2.Location, PB_Mark3.Location) = (PB_Mark3.Location, PB_Mark2.Location);
 
-        FLP_Friendship.Visible = FLP_Form.Visible = gen >= 2;
-        FLP_HeldItem.Visible = gen >= 2;
-        CHK_IsEgg.Visible = gen >= 2;
-        FLP_PKRS.Visible = FLP_EggPKRSRight.Visible = gen >= 2;
-        UC_Gender.Visible = gen >= 2;
-        FLP_CatchRate.Visible = gen == 1;
+        CB_Ability.Visible = CB_Ability.TabStop = !DEV_Ability.Enabled && format >= 3;
+        Label_Nature.Visible = CB_Nature.Visible = format >= 3;
+        L_StatAlignment.Visible = CB_StatAlignment.Visible = format >= 8;
+        Label_Ability.Visible = FLP_AbilityRight.Visible = format >= 3;
+        FLP_ExtraBytes.Visible = format >= 3;
+        GB_Markings.Visible = GB_Markings.TabStop = format >= 3;
+        CB_Form.Enabled = format >= 3;
+        FA_Form.Visible = FA_Form.TabStop = format >= 6;
+
+        Label_Friendship.Visible = TB_Friendship.Visible = format >= 2;
+        L_FriendshipHT.Visible = TB_FriendshipHT.Visible = format >= 6;
+        L_LanguageHT.Visible = CB_HTLanguage.Visible = format >= 8;
+        Label_HeldItem.Visible = CB_HeldItem.Visible = format >= 2;
+        CHK_IsEgg.Visible = CHK_IsEgg.TabStop = format >= 2;
+        Label_PKRS.Visible = Label_PKRSdays.Visible = FLP_EggPKRSRight.Visible = format >= 2;
+        UC_OTGender.Visible = UC_OTGender.TabStop = format >= 2;
+        UC_Gender.Visible = format >= 2 || (format == 1 && Main.Settings.EntityEditor.ShowGenderGen1);
+        L_CatchRate.Visible = CR_PK1.Visible = format == 1;
 
         // HaX override, needs to be after DEV_Ability enabled assignment.
-        TB_AbilityNumber.Visible = gen >= 6 && DEV_Ability.Enabled;
+        TB_AbilityNumber.Visible = format >= 6 && DEV_Ability.Enabled;
 
         // Met Tab
-        L_HomeTracker.Visible = TB_HomeTracker.Visible = gen >= 8;
-        FLP_MetDate.Visible = gen >= 4;
-        FLP_Fateful.Visible = FLP_Ball.Visible = FLP_OriginGame.Visible = gen >= 3;
-        FLP_MetLocation.Visible = FLP_MetLevel.Visible = gen >= 2;
-        FLP_GroundTile.Visible = gen is 4 or 5 or 6;
-        FLP_TimeOfDay.Visible = gen == 2;
+        FLP_MetDate.Visible = format >= 4;
+        CHK_Fateful.Visible = FLP_Ball.Visible = FLP_OriginGame.Visible = format >= 3;
+        FLP_MetLocation.Visible = FLP_MetLevel.Visible = format >= 2;
+        FLP_GroundTile.Visible = format is 4 or 5 or 6;
+        FLP_TimeOfDay.Visible = format == 2;
 
-        Stats.ToggleInterface(Entity, gen);
+        Stats.ToggleInterface(Entity, format);
 
         CenterSubEditors();
     }
@@ -1880,72 +2135,91 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         FieldsLoaded = false;
 
-        bool TranslationRequired = false;
+        bool isTranslationRequired = false;
         PopulateFilteredDataSources(sav);
         PopulateFields(Entity);
 
         // Save File Specific Limits
-        TB_OT.MaxLength = Entity.OTLength;
-        TB_HT.MaxLength = Entity.OTLength;
-        TB_Nickname.MaxLength = Entity.NickLength;
+        TB_OT.MaxLength = Entity.MaxStringLengthTrainer;
+        TB_HT.MaxLength = Entity.MaxStringLengthTrainer;
+        TB_Nickname.MaxLength = Entity.MaxStringLengthNickname;
 
         // Hide Unused Tabs
-        if (Entity.Format == 1 && tabMain.TabPages.Contains(Tab_Met))
+        if (Entity.Format == 1 && Hidden_TC.TabPages.Contains(Hidden_Met))
         {
-            tabMain.TabPages.Remove(Tab_Met);
+            Hidden_TC.TabPages.Remove(Hidden_Met);
+            TC_Editor.TabPages.Remove(Tab_Met);
         }
-        else if (Entity.Format != 1 && !tabMain.TabPages.Contains(Tab_Met))
+        else if (Entity.Format != 1 && !Hidden_TC.TabPages.Contains(Hidden_Met))
         {
-            tabMain.TabPages.Insert(1, Tab_Met);
-            TranslationRequired = true;
+            Hidden_TC.TabPages.Insert(1, Hidden_Met);
+            TC_Editor.TabPages.Insert(1, Tab_Met);
+            isTranslationRequired = true;
+        }
+
+        if (Entity.Format <= 2 && Hidden_TC.TabPages.Contains(Hidden_Cosmetic))
+        {
+            Hidden_TC.TabPages.Remove(Hidden_Cosmetic);
+            TC_Editor.TabPages.Remove(Tab_Cosmetic);
+        }
+        else if (Entity.Format > 2 && !Hidden_TC.TabPages.Contains(Hidden_Cosmetic))
+        {
+            Hidden_TC.TabPages.Insert(4, Hidden_Cosmetic);
+            TC_Editor.TabPages.Insert(4, Tab_Cosmetic);
+            isTranslationRequired = true;
         }
 
         if (!HaX && sav is SAV7b)
         {
-            FLP_HeldItem.Visible = false;
-            FLP_Country.Visible = false;
-            FLP_SubRegion.Visible = false;
-            FLP_3DSRegion.Visible = false;
+            Label_HeldItem.Visible = CB_HeldItem.Visible = false;
+            Label_Country.Visible = CB_Country.Visible = false;
+            Label_SubRegion.Visible = CB_SubRegion.Visible = false;
+            Label_3DSRegion.Visible = CB_3DSReg.Visible = false;
         }
 
         if (!HaX && sav is SAV8LA)
         {
-            FLP_HeldItem.Visible = false;
+            Label_HeldItem.Visible = CB_HeldItem.Visible = false;
         }
 
         // pk2 save files do not have an Origin Game stored. Prompt the met location list to update.
         if (Entity.Format == 2)
             CheckMetLocationChange(GameVersion.C, Entity.Context);
-        return TranslationRequired;
+        return isTranslationRequired;
     }
 
     private void CenterSubEditors()
     {
         // Recenter PKM SubEditors
-        var firstTabArea = tabMain.TabPages[0]; // first is always initialized
+        var firstTabArea = Hidden_Main; // first is always initialized
         FLP_PKMEditors.HorizontallyCenter(firstTabArea);
         FLP_MoveFlags.HorizontallyCenter(firstTabArea);
+        Stats.CenterSubEditors();
     }
 
     public void EnableDragDrop(DragEventHandler enter, DragEventHandler drop)
     {
-        AllowDrop = true;
-        DragDrop += drop;
-        foreach (var tab in tabMain.TabPages.OfType<TabPage>())
+        Enable(this);
+        Enable(TC_Editor);
+
+        foreach (var tab in Hidden_TC.TabPages.OfType<TabPage>())
+            Enable(tab);
+        return;
+
+        void Enable(Control c)
         {
-            tab.AllowDrop = true;
-            tab.DragEnter += enter;
-            tab.DragDrop += drop;
+            c.AllowDrop = true;
+            c.DragEnter += enter;
+            c.DragDrop += drop;
         }
     }
 
-    // ReSharper disable once FieldCanBeMadeReadOnly.Global
-    public Action<IBattleTemplate> LoadShowdownSet;
+    public Action<IBattleTemplate> LoadShowdownSet { get; set; }
 
-    private void LoadShowdownSetDefault(IBattleTemplate Set)
+    private void LoadShowdownSetDefault(IBattleTemplate set)
     {
         var pk = PreparePKM();
-        pk.ApplySetDetails(Set);
+        pk.ApplySetDetails(set);
         PopulateFields(pk);
     }
 
@@ -1953,20 +2227,27 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         if (Entity is not IBattleVersion b)
             return;
-        var value = (byte)WinFormsUtil.GetIndex(CB_BattleVersion);
-        b.BattleVersion = value;
-        PB_BattleVersion.Image = GetMarkSprite(PB_BattleVersion, value != 0);
+        var value = (GameVersion)WinFormsUtil.GetIndex(CB_BattleVersion);
+        if (FieldsLoaded)
+            b.BattleVersion = value;
+        var sprite = GetMarkSprite(PB_BattleVersion, value != 0);
+        if (Application.IsDarkModeEnabled)
+            sprite = WinFormsUtil.BlackToWhite(sprite);
+        PB_BattleVersion.Image = sprite;
     }
 
-    private static Image GetMarkSprite(PictureBox p, bool opaque, double trans = 0.175)
+    private static Bitmap GetMarkSprite(PictureBox p, bool opaque, double trans = 0.175)
     {
-        var sprite = p.InitialImage;
-        return opaque ? sprite : ImageUtil.ChangeOpacity(sprite, trans);
+        var bmp = p.InitialImage as Bitmap;
+        ArgumentNullException.ThrowIfNull(bmp);
+        if (!opaque)
+            bmp = ImageUtil.CopyChangeOpacity(bmp, trans);
+        return bmp;
     }
 
     private void ClickVersionMarking(object sender, EventArgs e)
     {
-        tabMain.SelectedTab = Tab_Met;
+        TC_Editor.SelectedTab = Tab_Met;
         if (sender == PB_BattleVersion)
             CB_BattleVersion.DroppedDown = true;
         else
@@ -1984,8 +2265,22 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
     public void FlickerInterface()
     {
-        tabMain.SelectedTab = Tab_Met; // parent tab of CB_GameOrigin
-        tabMain.SelectedTab = Tab_Main; // first tab
+        TC_Editor.SelectedTab = Tab_Met; // parent tab of CB_GameOrigin
+        TC_Editor.SelectedTab = Tab_Main; // first tab
+    }
+
+    private void L_Obedience_Click(object sender, EventArgs e)
+    {
+        if (Entity is not IObedienceLevel l)
+            return;
+
+        var met = Util.ToInt32(TB_MetLevel.Text);
+        var metLevel = (byte)Math.Clamp(met, 0, 100);
+        var suggest = l.GetSuggestedObedienceLevel(Entity, metLevel);
+
+        var current = Util.ToInt32(TB_ObedienceLevel.Text);
+        if (suggest != current)
+            TB_ObedienceLevel.Text = suggest.ToString();
     }
 
     private void InitializeLanguage(ITrainerInfo sav)
@@ -1995,11 +2290,11 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         SetCountrySubRegion(CB_Country, "countries");
         CB_3DSReg.DataSource = source.ConsoleRegions;
 
-        CB_GroundTile.DataSource = new BindingSource(source.G4GroundTiles, null);
-        CB_Nature.DataSource = new BindingSource(source.Natures, null);
-        CB_StatNature.DataSource = new BindingSource(source.Natures, null);
+        CB_GroundTile.DataSource = new BindingSource(source.G4GroundTiles, string.Empty);
+        CB_Nature.DataSource = new BindingSource(source.Natures, string.Empty);
+        CB_StatAlignment.DataSource = new BindingSource(source.Natures, string.Empty);
 
-        // Sub editors
+        // Sub-editors
         Stats.InitializeDataSources();
 
         PopulateFilteredDataSources(sav, true);
@@ -2009,7 +2304,7 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
     {
         if (!force && exist.DataSource is BindingSource b && b.Count == update.Count)
             return;
-        exist.DataSource = new BindingSource(update, null);
+        exist.DataSource = new BindingSource(update, string.Empty);
     }
 
     private void PopulateFilteredDataSources(ITrainerInfo sav, bool force = false)
@@ -2019,9 +2314,11 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
 
         if (sav.Generation >= 2)
         {
-            var game = (GameVersion) sav.Game;
+            var game = sav.Version;
             if (game <= 0)
                 game = Entity.Context.GetSingleGameVersion();
+            else if (game is GameVersion.COLO or GameVersion.XD)
+                game = GameVersion.CXD;
             CheckMetLocationChange(game, sav.Context);
             SetIfDifferentCount(source.Items, CB_HeldItem, force);
         }
@@ -2038,22 +2335,105 @@ public sealed partial class PKMEditor : UserControl, IMainEditor
         if (sav.Generation >= 8)
         {
             var lang = source.Languages;
-            var langWith0 = new List<ComboItem>(1 + lang.Count) {GameInfo.Sources.Empty};
+            var langWith0 = new List<ComboItem>(1 + lang.Count) { GameInfo.Sources.Empty };
             langWith0.AddRange(lang);
             SetIfDifferentCount(langWith0, CB_HTLanguage, force);
 
             var game = source.Games;
-            var gamesWith0 = new List<ComboItem>(1 + game.Count) {GameInfo.Sources.Empty};
-            gamesWith0.AddRange(game);
-            SetIfDifferentCount(gamesWith0, CB_BattleVersion, force);
+            SetIfDifferentCount(game, CB_BattleVersion, force);
         }
         SetIfDifferentCount(source.Species, CB_Species, force);
 
-        // Set the Move ComboBoxes too..
+        // Set the Move ComboBoxes too.
         LegalMoveSource.ChangeMoveSource(source.Moves);
-        foreach (var cb in Moves.Concat(Relearn))
-            SetIfDifferentCount(source.Moves, cb, force);
+        foreach (var cb in Relearn)
+            SetIfDifferentCount(source.Relearn, cb, force);
+        foreach (var cb in Moves)
+            SetIfDifferentCount(source.Moves, cb.CB_Move, force);
         if (sav is SAV8LA)
             SetIfDifferentCount(source.Moves, CB_AlphaMastered, force);
+    }
+
+    private void ChangeSelectedTabIndex(object? sender, EventArgs e)
+    {
+        // flip to the tab-less control's tab
+        Hidden_TC.SelectedIndex = TC_Editor.SelectedIndex;
+        // reset focus back to the vertical tab selection rather than the inaccessible tab
+        TC_Editor.Focus();
+    }
+
+    private void RefreshFontWarningButton(object sender, EventArgs e) => RefreshFontWarningButton();
+    private void RefreshFontWarningButton()
+    {
+        if (!IsFontDocumented(Entity))
+        {
+            BTN_NicknameWarn.Visible = BTN_OTNameWarn.Visible = false;
+            return;
+        }
+
+        var context = Entity.Context;
+        var langPk = (LanguageID)WinFormsUtil.GetIndex(CB_Language);
+        var langSav = (LanguageID)RequestSaveFile.Language;
+
+        // Gen 7 unnicknamed Chinese Pokémon will always be valid after remapping
+        var isUnnicknamedChinese = Entity is PK7 && (SpeciesName.GetSpeciesNameLanguage(Entity.Species, (int)langPk, TB_Nickname.Text, EntityContext.Gen7) is (int)LanguageID.ChineseS or (int)LanguageID.ChineseT);
+
+        BTN_NicknameWarn.Visible = !isUnnicknamedChinese && StringFontUtil.HasUndefinedCharacters(TB_Nickname.Text, context, langPk, langSav);
+        BTN_OTNameWarn.Visible = StringFontUtil.HasUndefinedCharacters(TB_OT.Text, context, langPk, langSav);
+
+        static bool IsFontDocumented(PKM pk)
+        {
+            if (pk.Generation < 5)
+                return pk is (CK3 or XK3); // Only two that are fully documented and definitive
+            return true;
+        }
+    }
+
+    private void FontWarn(string name, string message, Control ctrl)
+    {
+        var langPk = (LanguageID)WinFormsUtil.GetIndex(CB_Language);
+        var langSav = (LanguageID)RequestSaveFile.Language;
+        var displayed = StringFontUtil.ReplaceUndefinedCharacters(name, Entity.Context, langPk, langSav);
+        if (displayed == name) // save language was changed
+        {
+            ctrl.Visible = false;
+            return;
+        }
+        WinFormsUtil.Alert(string.Format(message, name, displayed));
+    }
+
+    private void BTN_NicknameWarn_Click(object sender, EventArgs e) => FontWarn(TB_Nickname.Text, MsgPKMNicknameWarn, BTN_NicknameWarn);
+
+    private void BTN_OTNameWarn_Click(object sender, EventArgs e) => FontWarn(TB_OT.Text, MsgPKMOTNameWarn, BTN_OTNameWarn);
+
+    private void CHK_Nicknamed_Click(object? sender, EventArgs e) => CHK_NicknamedFlag.Checked ^= true;
+
+    private void PB_MarkShiny_Click(object sender, EventArgs e)
+    {
+        if (Entity.Format <= 2)
+        {
+            TC_Editor.SelectedTab = Tab_Stats;
+            Stats.Focus();
+            return;
+        }
+        TC_Editor.SelectedTab = Tab_Main;
+        TB_PID.Focus();
+    }
+
+    private void PB_MarkCured_Click(object sender, EventArgs e)
+    {
+        // Toggle Pokérus cured state.
+        if (!CHK_Cured.Checked)
+        {
+            CHK_Infected.Checked = true;
+            if (CB_PKRSDays.SelectedIndex != 0)
+                CB_PKRSDays.SelectedIndex = 0;
+        }
+        else
+        {
+            CHK_Cured.Checked = false;
+        }
+        TC_Editor.SelectedTab = Tab_Main;
+        CB_PKRSStrain.DroppedDown = true;
     }
 }

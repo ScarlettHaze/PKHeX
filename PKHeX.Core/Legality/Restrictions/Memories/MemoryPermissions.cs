@@ -1,8 +1,5 @@
-﻿using System.Collections.Generic;
-using System.Linq;
+using System;
 
-using static PKHeX.Core.Encounters6;
-using static PKHeX.Core.Encounters8;
 using static PKHeX.Core.Move;
 using static PKHeX.Core.Species;
 
@@ -15,76 +12,58 @@ public static class MemoryPermissions
 {
     public static bool IsMemoryOfKnownMove(int memory) => memory is 48 or 80 or 81;
 
-    public static bool CanWinLotoID(int generation, int item)
+    public static bool CanWinLotoID(EntityContext context, int item)
     {
-        var context = Memories.GetContext(generation);
-        return context.CanWinLotoID(item);
+        var mem = Memories.GetContext(context);
+        return mem.CanWinLotoID(item);
     }
 
-    public static bool CanHoldItem(int generation, int item)
+    public static bool CanHoldItem(EntityContext context, int item)
     {
-        var context = Memories.GetContext(generation);
-        return context.CanHoldItem(item);
+        var mem = Memories.GetContext(context);
+        return mem.CanHoldItem(item);
     }
 
-    public static bool CanPlantBerry(int generation, int item)
+    public static bool CanPlantBerry(EntityContext context, int item)
     {
-        var context = Memories.GetContext(generation);
-        return context.CanPlantBerry(item);
+        var mem = Memories.GetContext(context);
+        return mem.CanPlantBerry(item);
     }
 
-    public static bool CanUseItemGeneric(int generation, int item)
+    public static bool CanUseItemGeneric(EntityContext context, int item)
     {
-        var context = Memories.GetContext(generation);
-        return context.CanUseItemGeneric(item);
+        var mem = Memories.GetContext(context);
+        return mem.CanUseItemGeneric(item);
     }
 
-    public static bool CanUseItem(int generation, int item, int species)
+    public static bool CanUseItem(EntityContext context, int item, ushort species)
     {
-        if (IsUsedKeyItemUnspecific(generation, item))
+        if (IsUsedKeyItemUnspecific(context, item))
             return true;
-        if (IsUsedKeyItemSpecific(generation, item, species))
+        if (IsUsedKeyItemSpecific(context, item, species))
             return true;
         return true; // todo
     }
 
-    private static bool IsUsedKeyItemUnspecific(int generation, int item)
+    private static bool IsUsedKeyItemUnspecific(EntityContext context, int item)
     {
-        var context = Memories.GetContext(generation);
-        return context.IsUsedKeyItemUnspecific(item);
+        var mem = Memories.GetContext(context);
+        return mem.IsUsedKeyItemUnspecific(item);
     }
 
-    private static bool IsUsedKeyItemSpecific(int generation, int item, int species)
+    private static bool IsUsedKeyItemSpecific(EntityContext context, int item, ushort species)
     {
-        var context = Memories.GetContext(generation);
-        return context.IsUsedKeyItemSpecific(item, species);
+        var mem = Memories.GetContext(context);
+        return mem.IsUsedKeyItemSpecific(item, species);
     }
 
-    public static bool CanBuyItem(int generation, int item, GameVersion version = GameVersion.Any)
+    public static bool CanBuyItem(EntityContext context, int item, GameVersion version = GameVersion.Any)
     {
-        var context = Memories.GetContext(generation);
-        return context.CanBuyItem(item, version);
+        var mem = Memories.GetContext(context);
+        return mem.CanBuyItem(item, version);
     }
 
-    public static bool GetCanLearnMachineMove(PKM pk, EvoCriteria[] evos, int move, int generation, GameVersion version = GameVersion.Any)
-    {
-        if (IsOtherFormMove(pk, evos, move, generation, version, types: MoveSourceType.AllMachines))
-            return true;
-        return MoveList.GetValidMoves(pk, version, evos, generation, types: MoveSourceType.AllMachines).Contains(move);
-    }
-
-    private static bool IsOtherFormMove(PKM pk, EvoCriteria[] evos, int move, int generation, GameVersion version, MoveSourceType types)
-    {
-        if (!Legal.FormChangeMoves.TryGetValue(pk.Species, out var criteria))
-            return false;
-        if (!criteria(generation, pk.Form))
-            return false;
-        var list = new List<int>(8);
-        MoveList.GetValidMovesAllForms(pk, evos, version, generation, types, false, pk.Species, list);
-        return list.Contains(move);
-    }
-
-    public static bool CanKnowMove(PKM pk, MemoryVariableSet memory, int gen, LegalInfo info, bool battleOnly = false)
+    public static bool CanKnowMove(PKM pk, MemoryVariableSet memory, EntityContext gen, LegalInfo info, bool battleOnly = false)
     {
         var move = memory.Variable;
         if (move == 0)
@@ -96,7 +75,7 @@ public static class MemoryPermissions
         if (pk.IsEgg)
             return false;
 
-        if (GetCanKnowMove(pk, move, gen, info.EvoChainsAllGens))
+        if (GetCanKnowMove(pk, move, gen, info.EvoChainsAllGens, info.EncounterOriginal))
             return true;
 
         var enc = info.EncounterMatch;
@@ -108,7 +87,8 @@ public static class MemoryPermissions
         // Relearns can be wiped via Battle Version. Check for eggs too.
         if (IsSpecialEncounterMoveEggDeleted(pk, enc))
         {
-            var em = MoveEgg.GetEggMoves(enc.Generation, enc.Species, enc.Form, enc.Version);
+            var learn = GameData.GetLearnSource(enc.Version);
+            var em = learn.GetEggMoves(enc.Species, enc.Form);
             if (em.Contains(move))
                 return true;
         }
@@ -122,7 +102,7 @@ public static class MemoryPermissions
                 case (int)BehemothBash when pk.Species == (int)Zamazenta:
                     return true;
             }
-            if (gen == 8 && MoveInfo.IsDynamaxMove(move))
+            if (gen == EntityContext.Gen8 && MoveInfo.IsMoveDynamax(move))
                 return true;
             if (pk.Species == (int)Ditto)
             {
@@ -130,7 +110,7 @@ public static class MemoryPermissions
                     return false;
                 return gen switch
                 {
-                    8 => move <= Legal.MaxMoveID_8_R2 && !MoveInfo.IsDummiedMove(pk, move),
+                    EntityContext.Gen8 => move <= Legal.MaxMoveID_8_R2 && !MoveInfo.IsDummiedMove(pk, move),
                     _ => move <= Legal.MaxMoveID_6_AO,
                 };
             }
@@ -143,212 +123,214 @@ public static class MemoryPermissions
     {
         if (pk.IsOriginalMovesetDeleted())
             return true;
-        return enc is EncounterEgg { Generation: < 6 }; // egg moves that are no longer in the movepool
+        return enc is IEncounterEgg { Generation: < 6 }; // egg moves that are no longer in the movepool
     }
 
-    public static bool GetCanRelearnMove(PKM pk, int move, int generation, EvoCriteria[] evos, GameVersion version = GameVersion.Any)
+    public static bool GetCanRelearnMove(PKM pk, ushort move, EntityContext context, EvolutionHistory history, IEncounterTemplate enc)
     {
-        if (IsOtherFormMove(pk, evos, move, generation, version, types: MoveSourceType.Reminder))
-            return true;
-        return MoveList.GetValidMoves(pk, version, evos, generation, types: MoveSourceType.Reminder).Contains(move);
-    }
-
-    private static bool GetCanKnowMove(PKM pk, int move, int generation, EvolutionHistory evos, GameVersion version = GameVersion.Any)
-    {
-        if (pk.Species == (int)Smeargle)
-            return Legal.IsValidSketch(move, generation);
-
-        if (generation >= 8 && MoveEgg.GetIsSharedEggMove(pk, generation, move))
-            return true;
-
-        if (evos.Length <= generation)
-            return false;
-        for (int i = 1; i <= generation; i++)
+        if (context == EntityContext.Gen6)
         {
-            var chain = evos[i];
-            if (chain.Length == 0)
-                continue;
-
-            var moves = MoveList.GetValidMoves(pk, version, chain, i, types: MoveSourceType.All);
-            if (moves.Contains(move))
-                return true;
-
-            if (IsOtherFormMove(pk, chain, move, i, GameVersion.Any, types: MoveSourceType.All))
-                return true;
+            Span<MoveResult> result = stackalloc MoveResult[1];
+            Span<ushort> moves = [move];
+            LearnGroup6.Instance.Check(result, moves, pk, history, enc, MoveSourceType.Reminder, LearnOption.AtAnyTime);
+            return result[0].Valid;
+        }
+        if (context == EntityContext.Gen8)
+        {
+            Span<MoveResult> result = stackalloc MoveResult[1];
+            Span<ushort> moves = [move];
+            LearnGroup8.Instance.Check(result, moves, pk, history, enc, MoveSourceType.Reminder, LearnOption.AtAnyTime);
+            return result[0].Valid;
         }
         return false;
     }
 
-    public static bool GetCanBeCaptured(int species, int gen, GameVersion version) => gen switch
+    private static bool GetCanKnowMove(PKM pk, ushort move, EntityContext context, EvolutionHistory history, IEncounterTemplate enc)
     {
-        6 => version switch
-        {
-            GameVersion.Any => GetCanBeCaptured(species, SlotsX, StaticX) || GetCanBeCaptured(species, SlotsY, StaticY)
-                                                                          || GetCanBeCaptured(species, SlotsA, StaticA) || GetCanBeCaptured(species, SlotsO, StaticO),
+        if (pk.Species == (int)Smeargle)
+            return MoveInfo.IsSketchValid(move, context);
 
-            GameVersion.X => GetCanBeCaptured(species, SlotsX, StaticX),
-            GameVersion.Y => GetCanBeCaptured(species, SlotsY, StaticY),
+        ILearnGroup game;
+        if (context == EntityContext.Gen6)
+            game = LearnGroup6.Instance;
+        else if (context == EntityContext.Gen8)
+            game = LearnGroup8.Instance;
+        else
+            return false;
 
-            GameVersion.AS => GetCanBeCaptured(species, SlotsA, StaticA),
-            GameVersion.OR => GetCanBeCaptured(species, SlotsO, StaticO),
-            _ => false,
-        },
-        8 => version switch
-        {
-            GameVersion.Any => GetCanBeCaptured(species, SlotsSW.Concat(SlotsSH), StaticSW.Concat(StaticSH)),
-            GameVersion.SW => GetCanBeCaptured(species, SlotsSW, StaticSW),
-            GameVersion.SH => GetCanBeCaptured(species, SlotsSH, StaticSH),
-            _ => false,
-        },
+        return GetCanKnowMove(enc, move, history, pk, game);
+    }
+
+    public static bool GetCanKnowMove(IEncounterTemplate enc, ushort move, EvolutionHistory history, PKM pk, ILearnGroup game, LearnOption option = LearnOption.AtAnyTime)
+    {
+        Span<MoveResult> result = stackalloc MoveResult[1];
+        Span<ushort> moves = [move];
+        LearnVerifierHistory.MarkAndIterate(result, moves, enc, pk, history, game, MoveSourceType.All, option);
+        return result[0].Valid;
+    }
+
+    public static bool GetCanBeCaptured(ushort species, EntityContext context, GameVersion version) => context switch
+    {
+        EntityContext.Gen6 => MemoryContext6.GetCanBeCaptured(species, version),
+        EntityContext.Gen8 => MemoryContext8.GetCanBeCaptured(species, version),
         _ => false,
     };
 
-    private static bool GetCanBeCaptured(int species, IEnumerable<EncounterArea> area, IEnumerable<EncounterStatic> statics)
+    public static bool GetCanDynamaxTrainer(ushort species, byte generation, GameVersion version)
     {
-        if (area.Any(loc => loc.HasSpecies(species)))
-            return true;
-        if (statics.Any(enc => enc.Species == species && !enc.Gift))
-            return true;
-        return false;
-    }
-
-    public static bool GetCanDynamaxTrainer(int species, int gen, GameVersion version)
-    {
-        if (gen != 8)
+        if (generation != 8)
             return false;
 
         return version switch
         {
-            GameVersion.SW => DynamaxTrainer_SWSH.Contains(species) || IsDynamaxSW(species),
-            GameVersion.SH => DynamaxTrainer_SWSH.Contains(species) || IsDynamaxSH(species),
-            _              => DynamaxTrainer_SWSH.Contains(species) || IsDynamaxSW(species) || IsDynamaxSH(species),
+            GameVersion.SW => IsDynamaxSWSH(species) || IsDynamaxSW(species),
+            GameVersion.SH => IsDynamaxSWSH(species) || IsDynamaxSH(species),
+            _ => IsDynamaxSWSH(species) || IsDynamaxSW(species) || IsDynamaxSH(species),
         };
     }
 
-    // exclusive to version
-    private static bool IsDynamaxSW(int species) => species is (int)Machamp or (int)Gigalith or (int)Conkeldurr or (int)Coalossal or (int)Flapple;
-    private static bool IsDynamaxSH(int species) => species is (int)Gengar or (int)Lapras or (int)Dusknoir or (int)Froslass or (int)Appletun;
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be Dynamaxed by a trainer available exclusively in Sword.
+    /// </summary>
+    private static bool IsDynamaxSW(ushort species) => species is (int)Machamp or (int)Gigalith or (int)Conkeldurr or (int)Coalossal or (int)Flapple;
 
-    // common to SW & SH
-    private static readonly HashSet<int> DynamaxTrainer_SWSH = new()
-    {
-        (int)Venusaur,
-        (int)Blastoise,
-        (int)Charizard,
-        (int)Slowbro,
-        (int)Gyarados,
-        (int)Snorlax,
-        (int)Slowking,
-        (int)Torkoal,
-        (int)Vespiquen,
-        (int)Regigigas,
-        (int)Garbodor,
-        (int)Haxorus,
-        (int)Tsareena,
-        (int)Rillaboom,
-        (int)Inteleon,
-        (int)Cinderace,
-        (int)Greedent,
-        (int)Corviknight,
-        (int)Eldegoss,
-        (int)Drednaw,
-        (int)Centiskorch,
-        (int)Hatterene,
-        (int)Grimmsnarl,
-        (int)Alcremie,
-        (int)Copperajah,
-        (int)Duraludon,
-        (int)Urshifu,
-    };
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be Dynamaxed by a trainer available exclusively in Sword.
+    /// </summary>
+    private static bool IsDynamaxSH(ushort species) => species is (int)Gengar or (int)Lapras or (int)Dusknoir or (int)Froslass or (int)Appletun;
 
-    public static bool GetCanFishSpecies(int species, int gen, GameVersion version) => gen switch
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be Dynamaxed by a trainer available in both Sword and Shield.
+    /// </summary>
+    private static bool IsDynamaxSWSH(ushort species) => species is
+        (int)Venusaur or
+        (int)Blastoise or
+        (int)Charizard or
+        (int)Slowbro or
+        (int)Gyarados or
+        (int)Snorlax or
+        (int)Slowking or
+        (int)Torkoal or
+        (int)Vespiquen or
+        (int)Regigigas or
+        (int)Garbodor or
+        (int)Haxorus or
+        (int)Tsareena or
+        (int)Rillaboom or
+        (int)Inteleon or
+        (int)Cinderace or
+        (int)Greedent or
+        (int)Corviknight or
+        (int)Eldegoss or
+        (int)Drednaw or
+        (int)Centiskorch or
+        (int)Hatterene or
+        (int)Grimmsnarl or
+        (int)Alcremie or
+        (int)Copperajah or
+        (int)Duraludon or
+        (int)Urshifu
+    ;
+
+    public static bool GetCanFishSpecies(ushort species, EntityContext context, GameVersion version) => context switch
     {
-        6 => version switch
+        EntityContext.Gen6 => version switch
         {
-            GameVersion.Any => FishingSpecies_XY.Contains(species) || FishingSpecies_AO.Contains(species)
-                                                                   || IsFishingSpeciesX(species) || IsFishingSpeciesY(species),
+            GameVersion.Any => IsFishingSpeciesXY(species) || IsFishingSpeciesAO(species)
+                             || IsFishingSpeciesX(species) || IsFishingSpeciesY(species),
 
-            GameVersion.X => FishingSpecies_XY.Contains(species) || IsFishingSpeciesX(species),
-            GameVersion.Y => FishingSpecies_XY.Contains(species) || IsFishingSpeciesY(species),
+            GameVersion.X => IsFishingSpeciesXY(species) || IsFishingSpeciesX(species),
+            GameVersion.Y => IsFishingSpeciesXY(species) || IsFishingSpeciesY(species),
 
-            GameVersion.OR or GameVersion.AS => FishingSpecies_AO.Contains(species),
+            GameVersion.OR or GameVersion.AS => IsFishingSpeciesAO(species),
             _ => false,
         },
-        8 => version switch
+        EntityContext.Gen8 => version switch
         {
-            GameVersion.Any or GameVersion.SW or GameVersion.SH => FishingSpecies_SWSH.Contains(species),
+            GameVersion.Any or GameVersion.SW or GameVersion.SH => IsFishingSpeciesSWSH(species),
             _ => false,
         },
         _ => false,
     };
 
-    private static readonly HashSet<int> FishingSpecies_SWSH = new()
-    {
-        (int)Shellder, (int)Cloyster,
-        (int)Krabby,
-        (int)Goldeen,
-        (int)Magikarp, (int)Gyarados,
-        (int)Lapras,
-        (int)Dratini,
-        (int)Chinchou, (int)Lanturn,
-        (int)Qwilfish,
-        (int)Remoraid, (int)Octillery,
-        (int)Carvanha, (int)Sharpedo,
-        (int)Wailmer, (int)Wailord,
-        (int)Barboach, (int)Whiscash,
-        (int)Corphish,
-        (int)Lileep,
-        (int)Feebas,
-        (int)Mantyke, (int)Mantine,
-        (int)Basculin,
-        (int)Wishiwashi,
-        (int)Mareanie,
-        (int)Pyukumuku,
-        (int)Dhelmise,
-        (int)Chewtle, (int)Drednaw,
-        (int)Arrokuda, (int)Barraskewda,
-    };
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be fished in either <see cref="GameVersion.SW"/> or <see cref="GameVersion.SH"/>.
+    /// </summary>
+    private static bool IsFishingSpeciesSWSH(ushort species) => species is
+        (int)Shellder or (int)Cloyster or
+        (int)Krabby or
+        (int)Goldeen or
+        (int)Magikarp or (int)Gyarados or
+        (int)Lapras or
+        (int)Dratini or
+        (int)Chinchou or (int)Lanturn or
+        (int)Qwilfish or
+        (int)Remoraid or (int)Octillery or
+        (int)Carvanha or (int)Sharpedo or
+        (int)Wailmer or (int)Wailord or
+        (int)Barboach or (int)Whiscash or
+        (int)Corphish or
+        (int)Lileep or
+        (int)Feebas or
+        (int)Mantyke or (int)Mantine or
+        (int)Basculin or
+        (int)Wishiwashi or
+        (int)Mareanie or
+        (int)Pyukumuku or
+        (int)Dhelmise or
+        (int)Chewtle or (int)Drednaw or
+        (int)Arrokuda or (int)Barraskewda
+    ;
 
-    private static readonly HashSet<int> FishingSpecies_AO = new()
-    {
-        (int)Tentacool,
-        (int)Horsea, (int)Seadra,
-        (int)Goldeen, (int)Seaking,
-        (int)Staryu,
-        (int)Magikarp, (int)Gyarados,
-        (int)Corsola,
-        (int)Remoraid, (int)Octillery,
-        (int)Carvanha, (int)Sharpedo,
-        (int)Wailmer,
-        (int)Barboach, (int)Whiscash,
-        (int)Corphish, (int)Crawdaunt,
-        (int)Feebas,
-        (int)Luvdisc,
-    };
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be fished in either <see cref="GameVersion.AS"/> or <see cref="GameVersion.OR"/>.
+    /// </summary>
+    public static bool IsFishingSpeciesAO(ushort species) => species is
+        (int)Tentacool or
+        (int)Horsea or (int)Seadra or
+        (int)Goldeen or (int)Seaking or
+        (int)Staryu or
+        (int)Magikarp or (int)Gyarados or
+        (int)Corsola or
+        (int)Remoraid or (int)Octillery or
+        (int)Carvanha or (int)Sharpedo or
+        (int)Wailmer or
+        (int)Barboach or (int)Whiscash or
+        (int)Corphish or (int)Crawdaunt or
+        (int)Feebas or
+        (int)Luvdisc
+    ;
 
-    // exclusive to version
-    private static bool IsFishingSpeciesX(int species) => species is (int)Staryu or (int)Starmie or (int)Huntail or (int)Clauncher or (int)Clawitzer;
-    private static bool IsFishingSpeciesY(int species) => species is (int)Shellder or (int)Cloyster or (int)Gorebyss or (int)Skrelp or (int)Dragalge;
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be fished in only <see cref="GameVersion.X"/>.
+    /// </summary>
+    public static bool IsFishingSpeciesX(ushort species) => species is (int)Staryu or (int)Starmie or (int)Huntail or (int)Clauncher or (int)Clawitzer;
 
-    // common to X & Y
-    private static readonly HashSet<int> FishingSpecies_XY = new()
-    {
-        (int)Poliwag, (int)Poliwhirl, (int)Poliwrath, (int)Politoed,
-        (int)Horsea, (int)Seadra,
-        (int)Goldeen, (int)Seaking,
-        (int)Magikarp, (int)Gyarados,
-        (int)Dratini, (int)Dragonair,
-        (int)Chinchou, (int)Lanturn,
-        (int)Qwilfish,
-        (int)Corsola,
-        (int)Remoraid, (int)Octillery,
-        (int)Carvanha, (int)Sharpedo,
-        (int)Barboach, (int)Whiscash,
-        (int)Corphish, (int)Crawdaunt,
-        (int)Clamperl,
-        (int)Relicanth,
-        (int)Luvdisc,
-        (int)Basculin,
-        (int)Alomomola,
-    };
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be fished in only <see cref="GameVersion.Y"/>.
+    /// </summary>
+    public static bool IsFishingSpeciesY(ushort species) => species is (int)Shellder or (int)Cloyster or (int)Gorebyss or (int)Skrelp or (int)Dragalge;
+
+    /// <summary>
+    /// Checks if the <see cref="species"/> can be fished in both <see cref="GameVersion.X"/> and <see cref="GameVersion.Y"/>.
+    /// </summary>
+    public static bool IsFishingSpeciesXY(ushort species) => species is
+        (int)Poliwag or (int)Poliwhirl or (int)Poliwrath or (int)Politoed or
+        (int)Horsea or (int)Seadra or
+        (int)Goldeen or (int)Seaking or
+        (int)Magikarp or (int)Gyarados or
+        (int)Dratini or (int)Dragonair or
+        (int)Chinchou or (int)Lanturn or
+        (int)Qwilfish or
+        (int)Corsola or
+        (int)Remoraid or (int)Octillery or
+        (int)Carvanha or (int)Sharpedo or
+        (int)Barboach or (int)Whiscash or
+        (int)Corphish or (int)Crawdaunt or
+        (int)Clamperl or
+        (int)Relicanth or
+        (int)Luvdisc or
+        (int)Basculin or
+        (int)Alomomola
+    ;
 }

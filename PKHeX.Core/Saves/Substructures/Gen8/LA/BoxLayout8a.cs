@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 
 namespace PKHeX.Core;
@@ -7,18 +7,16 @@ namespace PKHeX.Core;
 /// Exposes information about Box Names and which box is the first box to show when the UI is opened.
 /// </summary>
 [TypeConverter(typeof(ExpandableObjectConverter))]
-public sealed class BoxLayout8a : SaveBlock<SAV8LA>, IBoxDetailName
+public sealed class BoxLayout8a(SAV8LA sav, SCBlock block) : SaveBlock<SAV8LA>(sav, block.Raw), IBoxDetailName
 {
     public const int BoxCount = 32;
 
     private const int StringMaxLength = SAV6.LongStringLength / 2; // 0x22 bytes
 
-    public BoxLayout8a(SAV8LA sav, SCBlock block) : base(sav, block.Data) { }
-
     private static int GetBoxNameOffset(int box) => SAV6.LongStringLength * box;
-    private Span<byte> GetBoxNameSpan(int box) => Data.AsSpan(GetBoxNameOffset(box), SAV6.LongStringLength);
+    private Span<byte> GetBoxNameSpan(int box) => Data.Slice(GetBoxNameOffset(box), SAV6.LongStringLength);
     public string GetBoxName(int box) => SAV.GetString(GetBoxNameSpan(box));
-    public void SetBoxName(int box, string value) => SAV.SetString(GetBoxNameSpan(box), value.AsSpan(), StringMaxLength, StringConverterOption.ClearZero);
+    public void SetBoxName(int box, ReadOnlySpan<char> value) => SAV.SetString(GetBoxNameSpan(box), value, StringMaxLength, StringConverterOption.ClearZero);
 
     public string this[int i]
     {

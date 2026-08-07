@@ -1,10 +1,13 @@
-﻿// ReSharper disable AutoPropertyCanBeMadeGetOnly.Global
+// ReSharper disable AutoPropertyCanBeMadeGetOnly.Global
+
+using System.Diagnostics.CodeAnalysis;
 
 namespace PKHeX.Core;
 
 /// <summary>
 /// Generic Message Strings used for messages shown to the user.
 /// </summary>
+[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)]
 public static class MessageStrings
 {
     #region Generic Program Messages
@@ -15,6 +18,7 @@ public static class MessageStrings
     public static string MsgProgramUpdateAvailable { get; set; } = "New Update Available!";
     public static string MsgProgramCloseUnsaved { get; set; } = "Any unsaved changes will be lost.";
     public static string MsgProgramCloseConfirm { get; set; } = "Are you sure you want to close PKHeX?";
+    public static string MsgProgramSaveUnsaved { get; set; } = "The Pokémon in the editor has unsaved changes.";
     public static string MsgProgramSaveFileConfirm { get; set; } = "Are you sure you want to load a new save file?";
     public static string MsgProgramError { get; set; } = "ERROR";
     public static string MsgProgramErrorExpectedHex { get; set; } = "Expected Text containing only the following characters (0-9, A-F).";
@@ -44,7 +48,15 @@ public static class MessageStrings
 
     #region Main Window
 
+    public static string MsgConfirmQuitProgram { get; set; } = "Quit PKHeX?";
+
+    public static string MsgFileDelete { get; set; } = "Delete this file?";
+    public static string MsgFileDeleteFail { get; set; } = "Unable to delete file.";
+    public static string MsgFileDeleteSuccess { get; set; } = "File deleted successfully.";
+
     public static string MsgFileLoad { get; set; } = "File Loaded:";
+    public static string MsgFileLoadAllZero { get; set; } = "File is uninitialized (all zero). Please ensure it was properly saved.";
+    public static string MsgFileLoadAllFFFF { get; set; } = "File is uninitialized (all 0xFF). Please ensure it was properly saved.";
     public static string MsgFileLoadFail { get; set; } = "Unable to load file.";
     public static string MsgFileLoadFailAuto { get; set; } = "An error occurred while attempting to auto-load your save file.";
     public static string MsgFileLoadFailAutoAdvise { get; set; } = "It is advised to manually remove bad filenames from the folder.";
@@ -60,11 +72,17 @@ public static class MessageStrings
     public static string MsgFileLoadSaveSelectVersion { get; set; } = "Select the version.";
     public static string MsgFileLoadSaveSelectGame { get; set; } = "Select a game to edit.";
     public static string MsgFileLoadSaveMultiple { get; set; } = "Multiple games detected";
+
+    public static string MsgFileLoadSelectFileSave { get; set; } = "Select a save file...";
+    public static string MsgFileLoadSelectFileBlock { get; set; } = "Select a save block file...";
+    public static string MsgFileLoadSelectFileSecretBase { get; set; } = "Select a Secret Base file...";
+
     public static string MsgFileGameCubeBad { get; set; } = "Invalid or corrupted GC Memory Card. Aborting.";
     public static string MsgFileGameCubeDuplicate { get; set; } = "GC Memory Card with duplicated game save files. Aborting.";
     public static string MsgFileGameCubeNoGames { get; set; } = "GC Memory Card without any Pokémon save file. Aborting.";
 
     public static string MsgFileSize { get; set; } = "File Size: {0} bytes";
+    public static string MsgFileSizeIncorrect { get; set; } = "Input file size ({0} bytes) does not match expected size ({1} bytes).";
     public static string MsgFileSizeLarge { get; set; } = "Input file is too large.";
     public static string MsgFileSizeSmall { get; set; } = "Input file is too small.";
     public static string MsgFileWriteFail { get; set; } = "Unable to save file.";
@@ -72,7 +90,7 @@ public static class MessageStrings
     public static string MsgFileWriteProtectedAdvice { get; set; } = "If the file is on a removable disk (SD card), please ensure the write protection switch is not set.";
     public static string MsgFileInUse { get; set; } = "Unable to load file. It could be in use by another program.";
     public static string MsgFileUnsupported { get; set; } = "Attempted to load an unsupported file type/size. This could mean PKHeX doesn't support your save file or your save file is corrupt.";
-    public static string MsgPKMUnsupported { get; set; } = "Attempted to load an unsupported file type/size. This could be caused by loading a different generation Pokemon file on an unsupported generation or your file is corrupt.";
+    public static string MsgPKMUnsupported { get; set; } = "Attempted to load an unsupported file type/size. This could be caused by loading a different generation Pokémon file on an unsupported generation or your file is corrupt.";
 
     public static string MsgPKMConvertSuccess { get; set; } = "Converted from {0} to {1}.";
     public static string MsgPKMConvertFail { get; set; } = "Conversion failed.";
@@ -88,6 +106,9 @@ public static class MessageStrings
     public static string MsgClipboardLegalityExport { get; set; } = "Copy report to Clipboard?";
     public static string MsgClipboardFailRead { get; set; } = "Clipboard does not contain text.";
     public static string MsgClipboardFailWrite { get; set; } = "Unable to set text to Clipboard.";
+
+    public static string MsgLegalityHoverValid { get; set; } = "Valid";
+    public static string MsgLegalityHoverInvalid { get; set; } = "Invalid: Click for more info.";
 
     public static string MsgSimulatorFailClipboard { get; set; } = "Set data not found in clipboard.";
     public static string MsgSimulatorLoad { get; set; } = "Import this set?";
@@ -112,6 +133,15 @@ public static class MessageStrings
 
     #endregion
 
+    #region Troubleshooting
+
+    public static string MsgTroubleshootingClipboardEmpty { get; set; } = "Clipboard is empty.";
+    public static string MsgTroubleshootingClipboardInvalidHex { get; set; } = "Clipboard does not contain a valid hex string.";
+    public static string MsgTroubleshootingPluginListHeader { get; set; } = "Loaded {0} plugins:";
+    public static string MsgTroubleshootingPluginListEmpty { get; set; } = "No plugins loaded.";
+
+    #endregion
+
     #region PKM Editor
 
     public static string MsgPKMLoadNull { get; set; } = "Attempted to load a null file.";
@@ -123,6 +153,8 @@ public static class MessageStrings
     public static string MsgPKMSuggestionMetLocation { get; set; } = "Met Location:";
     public static string MsgPKMSuggestionMetLevel { get; set; } = "Met Level:";
     public static string MsgPKMSuggestionLevel { get; set; } = "Current Level:";
+    public static string MsgPKMNicknameWarn { get; set; } = "The nickname \"{0}\" will be displayed as \"{1}\" in-game.";
+    public static string MsgPKMOTNameWarn { get; set; } = "The OT name \"{0}\" will be displayed as \"{1}\" in-game.";
 
     #endregion
 
@@ -139,7 +171,7 @@ public static class MessageStrings
     public static string MsgSaveBackupNotFound { get; set; } = "Original file has been moved; unable to copy a backup.";
     public static string MsgSaveCurrentGeneration { get; set; } = "Current SAV Generation: {0}";
 
-    public static string MsgSaveBoxCloneFromTabs { get; set; } = "Clone Pokemon from Editing Tabs to all slots in {0}?";
+    public static string MsgSaveBoxCloneFromTabs { get; set; } = "Clone Pokémon from Editing Tabs to all slots in {0}?";
     public static string MsgSaveBoxSortCurrent { get; set; } = "Sort Current Box?";
     public static string MsgSaveBoxSortCurrentFailBattle { get; set; } = "Battle Box slots prevent the sorting of box.";
     public static string MsgSaveBoxSortCurrentSuccess { get; set; } = "Current Box sorted!";
@@ -152,6 +184,7 @@ public static class MessageStrings
     public static string MsgSaveBoxClearAll { get; set; } = "Clear ALL Boxes?!";
     public static string MsgSaveBoxClearAllFailBattle { get; set; } = "Battle Box slots prevent the clearing of all boxes.";
     public static string MsgSaveBoxClearAllSuccess { get; set; } = "Boxes cleared!";
+    public static string MsgSaveBoxUseClipboard { get; set; } = "Use this folder found in your clipboard? {0}";
 
     public static string MsgSaveBoxFailNone { get; set; } = "The currently loaded save file does not have boxes!";
     public static string MsgSaveBoxExportYes { get; set; } = "Yes: Export All Boxes";
@@ -185,6 +218,8 @@ public static class MessageStrings
     public static string MsgSaveGen2RTCResetPassword { get; set; } = "RTC Reset Password: {0:00000}";
     public static string MsgSaveGen2RTCResetBitflag { get; set; } = "Would you like to reset the RTC?";
     public static string MsgSaveJPEGExportFail { get; set; } = "No picture data found in the save file!";
+    public static string MsgSaveGen4ConvertKorean { get; set; } = "Would you like to convert this Japanese/International save file to be playable with Korean games?";
+    public static string MsgSaveGen4ConvertInternational { get; set; } = "Would you like to convert this Korean save file to be playable with Japanese/International games?";
 
     public static string MsgSaveChecksumFailEdited { get; set; } = "Save has been edited. Cannot integrity check.";
     public static string MsgSaveChecksumValid { get; set; } = "Checksums are valid.";
@@ -200,6 +235,12 @@ public static class MessageStrings
     public static string MsgIndexAbilityRange { get; set; } = "Ability Index beyond range:";
     public static string MsgIndexAbilityGame { get; set; } = "Ability Index beyond range:";
 
+    public static string MsgGeonetPointNone { get; set; } = "None";
+    public static string MsgGeonetPointBlue { get; set; } = "Blue";
+    public static string MsgGeonetPointYellow { get; set; } = "Yellow";
+    public static string MsgGeonetPointRed { get; set; } = "Red";
+
+    public static string MsgGearAllCharacterStyles { get; set; } = "All";
     #endregion
 
     #region QR Codes
@@ -314,7 +355,6 @@ public static class MessageStrings
     #endregion
 
     #region Misc
-
     public static string MsgSaveDifferentTypes { get; set; } = "Save File types are different.";
     public static string MsgSaveDifferentVersions { get; set; } = "Save File versions are not the same.";
     public static string MsgSaveNumberInvalid { get; set; } = "Save File {0} is not valid.";
@@ -323,6 +363,18 @@ public static class MessageStrings
     public static string MsgSecretBaseDeleteSelf { get; set; } = "Cannot delete your Secret Base.";
 
     public static string MsgPluginFailLoad { get; set; } = "Plugins failed to load. Please refer to the error message to identify the faulty plugin. A plugin may be out of date / incompatible with this build of the program.";
+
+    #endregion
+
+    #region Dialog Prompts
+
+    public static string MsgLegalityPopupCaption { get; set; } = "Legality Check";
+    public static string MsgLegalityPopupCollapsed { get; set; } = "Full Report";
+    public static string MsgLegalityPopupExpanded { get; set; } = "Hide Full Report";
+    public static string MsgLegalityPopupCopyClipboard { get; set; } = "Copy to Clipboard";
+    public static string MsgDialogFileOverwrite { get; set; } = "Overwrite";
+    public static string MsgDialogFileSaveAs { get; set; } = "Save As...";
+    public static string MsgDialogFileSaveReplace { get; set; } = "Overwrite existing file?";
 
     #endregion
 }

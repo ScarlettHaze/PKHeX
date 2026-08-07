@@ -1,3 +1,4 @@
+using System;
 using PKHeX.Core;
 
 namespace PKHeX.WinForms.Controls;
@@ -8,5 +9,12 @@ public interface IMainEditor : IPKMView
     SaveFile RequestSaveFile { get; }
 
     void UpdateIVsGB(bool skipForm);
-    void ChangeNature(int newNature);
+    void ChangeNature(Nature newNature);
+}
+
+[Flags]
+public enum UpdateLegalityArgs
+{
+    None,
+    SkipMoveRepopulation = 1 << 0,
 }

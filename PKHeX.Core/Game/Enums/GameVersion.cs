@@ -1,14 +1,13 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
 /// <summary>
 /// Game Version ID enum shared between actual Version IDs and lumped version groupings.
 /// </summary>
-public enum GameVersion
+public enum GameVersion : byte
 {
     #region Indicators for method empty arguments & result indication. Not stored values.
-    Invalid = -2,
-    Any = -1,
-    Unknown = 0,
+    Any = 0,
+    Invalid = byte.MaxValue,
     #endregion
 
     // The following values are IDs stored within PKM data, and can also identify individual games.
@@ -70,6 +69,11 @@ public enum GameVersion
     /// Pokémon SoulSilver (NDS)
     /// </summary>
     SS = 8,
+
+    /// <summary>
+    /// Pokémon Battle Revolution (Wii)
+    /// </summary>
+    BATREV = 16,
     #endregion
 
     #region Gen5
@@ -160,7 +164,7 @@ public enum GameVersion
     BU = 37,
 
     /// <summary>
-    /// Pokémon Yellow [JP] (3DS Virtual Console)
+    /// Pokémon Yellow (3DS Virtual Console)
     /// </summary>
     YW = 38,
     #endregion
@@ -219,6 +223,26 @@ public enum GameVersion
     /// Pokémon Shining Pearl (NX)
     /// </summary>
     SP = 49,
+
+    /// <summary>
+    /// Pokémon Scarlet (NX)
+    /// </summary>
+    SL = 50,
+
+    /// <summary>
+    /// Pokémon Violet (NX)
+    /// </summary>
+    VL = 51,
+
+    /// <summary>
+    /// Pokémon Legends: (Z-A) (NX)
+    /// </summary>
+    ZA = 52,
+
+    /// <summary>
+    /// Pokémon Champions (NX)
+    /// </summary>
+    CP = 53,
     #endregion
 
     // The following values are not actually stored values in pk data,
@@ -258,7 +282,7 @@ public enum GameVersion
     GSC,
 
     /// <summary>
-    /// Pokémon Ruby &amp; Sapphire [<see cref="SAV3"/>] identifier.
+    /// Pokémon Ruby &amp; Sapphire [<see cref="SAV3RS"/>] identifier.
     /// </summary>
     /// <see cref="R"/>
     /// <see cref="S"/>
@@ -273,7 +297,7 @@ public enum GameVersion
     RSE,
 
     /// <summary>
-    /// Pokémon FireRed/LeafGreen [<see cref="SAV3"/>] identifier.
+    /// Pokémon FireRed/LeafGreen [<see cref="SAV3FRLG"/>] identifier.
     /// </summary>
     /// <see cref="FR"/>
     /// <see cref="LG"/>
@@ -299,7 +323,7 @@ public enum GameVersion
     XD,
 
     /// <summary>
-    /// Pokémon Diamond &amp; Pearl [<see cref="SAV4"/>] identifier.
+    /// Pokémon Diamond &amp; Pearl [<see cref="SAV4DP"/>] identifier.
     /// </summary>
     /// <see cref="D"/>
     /// <see cref="P"/>
@@ -315,16 +339,11 @@ public enum GameVersion
     DPPt,
 
     /// <summary>
-    /// Pokémon HeartGold &amp; SoulSilver [<see cref="SAV4"/>] identifier.
+    /// Pokémon HeartGold &amp; SoulSilver [<see cref="SAV4HGSS"/>] identifier.
     /// </summary>
     /// <see cref="HG"/>
     /// <see cref="SS"/>
     HGSS,
-
-    /// <summary>
-    /// Pokémon Battle Revolution [<see cref="SAV4BR"/>] identifier.
-    /// </summary>
-    BATREV,
 
     /// <summary>
     /// Pokémon Black &amp; White version group.
@@ -351,7 +370,7 @@ public enum GameVersion
     XY,
 
     /// <summary>
-    /// Pokémon Omega Ruby &amp; Alpha Sapphire Demo [<see cref="SAV6"/>] identifier.
+    /// Pokémon Omega Ruby &amp; Alpha Sapphire Demo [<see cref="SAV6AODemo"/>] identifier.
     /// </summary>
     /// <see cref="ORAS"/>
     ORASDEMO,
@@ -403,6 +422,14 @@ public enum GameVersion
     /// <see cref="BD"/>
     /// <see cref="SP"/>
     BDSP,
+
+    /// <summary>
+    /// Pokémon Scarlet &amp; Violet
+    /// </summary>
+    /// <remarks>Used to lump data from the associated games as data assets are shared.</remarks>
+    /// <see cref="SL"/>
+    /// <see cref="VL"/>
+    SV,
 
     /// <summary>
     /// Generation 1 Games
@@ -467,6 +494,12 @@ public enum GameVersion
     Gen8,
 
     /// <summary>
+    /// Generation 9 Games
+    /// </summary>
+    /// <see cref="SV"/>
+    Gen9,
+
+    /// <summary>
     /// Pocket Monsters Stadium data origin identifier
     /// </summary>
     StadiumJ,
@@ -480,5 +513,10 @@ public enum GameVersion
     /// Pokémon Stadium 2 data origin identifier
     /// </summary>
     Stadium2,
+
+    /// <summary>
+    /// Emerald &amp; FireRed &amp; LeafGreen version group.
+    /// </summary>
+    EFL,
     #endregion
 }

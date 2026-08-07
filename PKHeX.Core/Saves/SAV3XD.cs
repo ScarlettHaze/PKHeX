@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Buffers;
 using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace PKHeX.Core;
@@ -7,74 +7,81 @@ namespace PKHeX.Core;
 /// <summary>
 /// Generation 3 <see cref="SaveFile"/> object for Pokémon XD saves.
 /// </summary>
-public sealed class SAV3XD : SaveFile, IGCSaveFile
+public sealed class SAV3XD : SaveFile, IGCSaveFile, IBoxDetailName, IDaycareStorage, IDaycareExperience, IGCRegion, ISaveFileRevision
 {
-    protected internal override string ShortSummary => $"{OT} ({Version}) #{SaveCount:0000}";
+    protected internal override string ShortSummary => $"{OT} ({Version}) {PlayTimeString}";
+    public int SaveRevision => 0;
+    public string SaveRevisionString => OriginalRegion switch
+    {
+        GCRegion.NTSC_J => "-J",
+        GCRegion.NTSC_U => "-U",
+        GCRegion.PAL => "-PAL",
+        _ => "-?",
+    };
+
     public override string Extension => this.GCExtension();
     public SAV3GCMemoryCard? MemoryCard { get; init; }
 
-    private const int SLOT_SIZE = 0x28000;
-    private const int SLOT_START = 0x6000;
-    private const int SLOT_COUNT = 2;
-
-    private int SaveCount = -1;
-    private int SaveIndex = -1;
+    private readonly int SaveCount;
+    private readonly int SaveIndex;
+    private int Config;
     private int Trainer1;
     private int Memo;
     private int Shadow;
     private readonly StrategyMemo StrategyMemo;
     private readonly ShadowInfoTableXD ShadowInfo;
     public int MaxShadowID => ShadowInfo.Count;
-    private int OFS_PouchHeldItem, OFS_PouchKeyItem, OFS_PouchBalls, OFS_PouchTMHM, OFS_PouchBerry, OFS_PouchCologne, OFS_PouchDisc;
+    public int OFS_Pouch;
     private readonly int[] subOffsets = new int[16];
-    private readonly byte[] BAK;
+    private readonly Memory<byte> Container;
+    private int DaycareOffset;
 
-    public SAV3XD() : base(SaveUtil.SIZE_G3XD)
+    public SAV3XD(bool japanese = false) : base(SaveUtil.SIZE_G3XD)
     {
-        BAK = Array.Empty<byte>();
+        Container = Memory<byte>.Empty;
+        CurrentRegion = OriginalRegion = japanese ? GCRegion.NTSC_J : GCRegion.NTSC_U;
         // create fake objects
         StrategyMemo = new StrategyMemo();
-        ShadowInfo = new ShadowInfoTableXD(false);
+        ShadowInfo = new ShadowInfoTableXD(japanese);
+        Config = 0xA8;
+        Trainer1 = 0xCCD8;
+        Party = 0xCD08;
+        Box = 0x10E08;
+        DaycareOffset = 0x1CA68;
+        Memo = 0xF678;
+        Shadow = 0x1CB48;
         Initialize();
         ClearBoxes();
     }
 
-    public SAV3XD(byte[] data) : base(data)
+    public SAV3XD(Memory<byte> data) : this(XDCrypto.DetectLatest(data.Span), data) { }
+    private SAV3XD((int Index, int Count) latest, Memory<byte> data, bool decrypt = true) : base(XDCrypto.GetSlot(data, latest.Index))
     {
-        BAK = data;
-        InitializeData(out StrategyMemo, out ShadowInfo);
+        if (decrypt)
+            XDCrypto.DecryptSlot(Data);
+        (SaveIndex, SaveCount) = latest;
+        Container = data;
+        Japanese = InitializeData(out StrategyMemo, out ShadowInfo);
         Initialize();
     }
 
-    public override PersonalTable Personal => PersonalTable.RS;
-    public override IReadOnlyList<ushort> HeldItems => Legal.HeldItems_XD;
+    public override PersonalTable3 Personal => PersonalTable.RS;
+    public override ReadOnlySpan<ushort> HeldItems => Legal.HeldItems_RS;
 
-    private void InitializeData(out StrategyMemo memo, out ShadowInfoTableXD info)
+    private readonly bool Japanese;
+
+    private bool InitializeData(out StrategyMemo memo, out ShadowInfoTableXD info)
     {
-        // Scan all 3 save slots for the highest counter
-        for (int i = 0; i < SLOT_COUNT; i++)
-        {
-            int slotOffset = SLOT_START + (i * SLOT_SIZE);
-            int SaveCounter = ReadInt32BigEndian(Data.AsSpan(slotOffset + 4));
-            if (SaveCounter <= SaveCount)
-                continue;
-
-            SaveCount = SaveCounter;
-            SaveIndex = i;
-        }
-
-        // Decrypt most recent save slot
-        Data = ReadSlot(Data, SaveIndex);
-
         // Get Offset Info
         Span<ushort> subLength = stackalloc ushort[16];
         for (int i = 0; i < 16; i++)
         {
-            subLength[i] = ReadUInt16BigEndian(Data.AsSpan(0x20 + (2 * i)));
-            subOffsets[i] = ReadUInt16BigEndian(Data.AsSpan(0x40 + (4 * i))) | (ReadUInt16BigEndian(Data.AsSpan(0x40 + (4 * i) + 2)) << 16);
+            subLength[i] = ReadUInt16BigEndian(Data[(0x20 + (2 * i))..]);
+            subOffsets[i] = ReadUInt16BigEndian(Data[(0x40 + (4 * i))..]) | (ReadUInt16BigEndian(Data[(0x40 + (4 * i) + 2)..]) << 16);
         }
 
         // Offsets are displaced by the 0xA8 savedata region
+        Config = subOffsets[0] + 0xA8;
         Trainer1 = subOffsets[1] + 0xA8;
         Party = Trainer1 + 0x30;
         Box = subOffsets[2] + 0xA8;
@@ -84,47 +91,27 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
         // Purifier = subOffsets[14] + 0xA8;
 
         bool jp = subLength[7] == 0x1E00;
-        memo = new StrategyMemo(Data, Memo, xd: true);
-        info = new ShadowInfoTableXD(Data.AsSpan(Shadow, subLength[7]), jp);
-    }
-
-    private static byte[] ReadSlot(Span<byte> data, int index)
-    {
-        int slotOffset = SLOT_START + (index * SLOT_SIZE);
-        var slot = data.Slice(slotOffset, SLOT_SIZE);
-        var result = new byte[SLOT_SIZE];
-        var destSpan = result.AsSpan();
-
-        // Decrypt Slot
-        Span<ushort> keys = stackalloc ushort[4];
-        GeniusCrypto.ReadKeys(slot.Slice(8, keys.Length * 2), keys);
-        Range r = new(0x10, 0x27FD8);
-        GeniusCrypto.Decrypt(slot[r], destSpan[r], keys); // body
-        slot[..0x10].CopyTo(destSpan[..0x10]); // checksums
-        slot[^0x18..].CopyTo(destSpan[^0x18..]); // tail end
-        return result;
+        memo = new StrategyMemo(Buffer.Slice(Memo, subLength[5]), xd: true);
+        info = new ShadowInfoTableXD(Data.Slice(Shadow, subLength[7]), jp);
+        return jp;
     }
 
     private void Initialize()
     {
-        OFS_PouchHeldItem = Trainer1 + 0x4C8;
-        OFS_PouchKeyItem = Trainer1 + 0x540;
-        OFS_PouchBalls = Trainer1 + 0x5EC;
-        OFS_PouchTMHM = Trainer1 + 0x62C;
-        OFS_PouchBerry = Trainer1 + 0x72C;
-        OFS_PouchCologne = Trainer1 + 0x7E4;
-        OFS_PouchDisc = Trainer1 + 0x7F0;
+        OFS_Pouch = Trainer1 + 0x4C8;
 
         // Since PartyCount is not stored in the save file,
         // Count up how many party slots are active.
         for (int i = 0; i < 6; i++)
         {
-            if (GetPartySlot(Data, GetPartyOffset(i)).Species != 0)
+            var ofs = GetPartyOffset(i);
+            var span = Data[ofs..];
+            if (IsPKMPresent(span))
                 PartyCount++;
         }
     }
 
-    protected override byte[] GetFinalData()
+    protected override Memory<byte> GetFinalData()
     {
         var newFile = GetInnerData();
 
@@ -133,57 +120,43 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
             return newFile;
 
         MemoryCard.WriteSaveGameData(newFile);
-        return MemoryCard.Data;
+        return MemoryCard.Data.ToArray();
     }
 
     private byte[] GetInnerData()
     {
         // Set Memo Back
         StrategyMemo.Write(); // .CopyTo(Data, Memo);
-        ShadowInfo.Write().CopyTo(Data, Shadow);
+        ShadowInfo.Write().CopyTo(Data[Shadow..]);
         SetChecksums();
 
-        // Put save slot back in original save data
-        var destOffset = SLOT_START + (SaveIndex * SLOT_SIZE);
-        byte[] dest = MemoryCard != null ? MemoryCard.ReadSaveGameData() : (byte[])BAK.Clone();
-        var destSpan = dest.AsSpan(destOffset, Data.Length);
-
-        // Get updated save slot data
-        Span<byte> slot = Data;
-        Span<ushort> keys = stackalloc ushort[4];
-        GeniusCrypto.ReadKeys(slot.Slice(8, keys.Length * 2), keys);
-        Range r = new(0x10, 0x27FD8);
-        GeniusCrypto.Encrypt(slot[r], destSpan[r], keys);
-        slot[..0x10].CopyTo(destSpan[..0x10]); // checksum/keys
-        slot[^0x18..].CopyTo(destSpan[^0x18..]); // tail end
-        return dest;
+        // Put save slot back in original save data, as a separate array.
+        var result = Container.ToArray();
+        var region = XDCrypto.GetSlot(result, SaveIndex);
+        XDCrypto.EncryptSlot(region.Span);
+        return result;
     }
 
     // Configuration
-    protected override SaveFile CloneInternal()
-    {
-        var data = GetInnerData();
-        return new SAV3XD(data) { MemoryCard = MemoryCard };
-    }
+    protected override SAV3XD CloneInternal() => new((SaveIndex, SaveCount), Container.ToArray(), false) { MemoryCard = MemoryCard };
 
-    protected override int SIZE_STORED => PokeCrypto.SIZE_3XSTORED;
-    protected override int SIZE_PARTY => PokeCrypto.SIZE_3XSTORED; // unused
-    public override PKM BlankPKM => new XK3();
+    public override int SIZE_STORED => PokeCrypto.SIZE_3XSTORED;
+    public override int SIZE_PARTY => PokeCrypto.SIZE_3XSTORED; // unused
+    public override XK3 BlankPKM => new();
     public override Type PKMType => typeof(XK3);
 
-    public override int MaxMoveID => Legal.MaxMoveID_3;
-    public override int MaxSpeciesID => Legal.MaxSpeciesID_3;
+    public override ushort MaxMoveID => Legal.MaxMoveID_3;
+    public override ushort MaxSpeciesID => Legal.MaxSpeciesID_3;
     public override int MaxAbilityID => Legal.MaxAbilityID_3;
     public override int MaxBallID => Legal.MaxBallID_3;
     public override int MaxItemID => Legal.MaxItemID_3_XD;
-    public override int MaxGameID => Legal.MaxGameID_3;
+    public override GameVersion MaxGameID => Legal.MaxGameID_3;
 
-    public override int MaxEV => 255;
-    public override int Generation => 3;
+    public override int MaxEV => EffortValues.Max255;
+    public override byte Generation => 3;
     public override EntityContext Context => EntityContext.Gen3;
-    protected override int GiftCountMax => 1;
-    public override int OTLength => 7;
-    public override int NickLength => 10;
+    public override int MaxStringLengthTrainer => 7;
+    public override int MaxStringLengthNickname => 10;
     public override int MaxMoney => 9999999;
 
     public override int BoxCount => 8;
@@ -191,10 +164,7 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
     public override bool IsPKMPresent(ReadOnlySpan<byte> data) => EntityDetection.IsPresentGC(data);
 
     // Checksums
-    protected override void SetChecksums()
-    {
-        Data = SetChecksums(Data, subOffsets[0]);
-    }
+    protected override void SetChecksums() => XDCrypto.SetChecksums(Data, subOffsets[0]);
 
     public override bool ChecksumsValid => !ChecksumInfo.Contains("Invalid");
 
@@ -202,102 +172,115 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
     {
         get
         {
-            byte[] data = SetChecksums(Data, subOffsets[0]);
+            var pool = ArrayPool<byte>.Shared;
+            var rent = pool.Rent(Data.Length);
+            var data = rent.AsSpan(0, Data.Length);
+            Data.CopyTo(data);
+            XDCrypto.SetChecksums(data, subOffsets[0]);
 
             const int start = 0xA8; // 0x88 + 0x20
-            int oldHC = ReadInt32BigEndian(Data.AsSpan(start + subOffsets[0] + 0x38));
-            int newHC = ReadInt32BigEndian(data.AsSpan(start + subOffsets[0] + 0x38));
+            int oldHC = ReadInt32BigEndian(Data[(start + subOffsets[0] + 0x38)..]);
+            int newHC = ReadInt32BigEndian(data[(start + subOffsets[0] + 0x38)..]);
             bool header = newHC == oldHC;
 
-            var oldCHK = Data.AsSpan(0x10, 0x10);
-            var newCHK = data.AsSpan(0x10, 0x10);
+            var oldCHK = Data.Slice(0x10, 0x10);
+            var newCHK = data.Slice(0x10, 0x10);
             bool body = newCHK.SequenceEqual(oldCHK);
+
+            data.Clear();
+            pool.Return(rent);
             return $"Header Checksum {(header ? "V" : "Inv")}alid, Body Checksum {(body ? "V" : "Inv")}alid.";
         }
     }
 
-    private static byte[] SetChecksums(byte[] input, int subOffset0)
+    // Config
+    public GCVersion GCGameIndex   { get => (GCVersion)Data[Config + 0x00];  set => Data[Config + 0x00] = (byte)value; }
+    public GCRegion CurrentRegion  { get => (GCRegion)Data[Config + 0x01];   set => Data[Config + 0x01] = (byte)value; }
+    public GCRegion OriginalRegion { get => (GCRegion)Data[Config + 0x02];   set => Data[Config + 0x02] = (byte)value; }
+    public LanguageGC GCLanguage   { get => (LanguageGC)Data[Config + 0x03]; set => Data[Config + 0x03] = (byte)value; }
+    public override int Language { get => (int)GCLanguage.ToLanguageID(); set => GCLanguage = ((LanguageID)value).ToLanguageGC(); }
+
+    private TimeSpan PlayedSpan
     {
-        if (input.Length != SLOT_SIZE)
-            throw new ArgumentException("Input should be a slot, not the entire save binary.");
-
-        byte[] data = (byte[])input.Clone();
-        const int start = 0xA8; // 0x88 + 0x20
-
-        // Header Checksum
-        int newHC = 0;
-        for (int i = 0; i < 8; i++)
-            newHC += data[i];
-
-        WriteInt32BigEndian(data.AsSpan(start + subOffset0 + 0x38), newHC);
-
-        // Body Checksum
-        data.AsSpan(0x10, 0x10).Clear(); // Clear old Checksum Data
-        Span<uint> checksum = stackalloc uint[4];
-        int dt = 8;
-        for (int i = 0; i < checksum.Length; i++)
-        {
-            uint val = 0;
-            var end = dt + 0x9FF4;
-            for (int j = dt; j < end; j += 2)
-                val += ReadUInt16BigEndian(data.AsSpan(j));
-            dt = end;
-            checksum[i] = val;
-        }
-
-        Span<ushort> newchks = stackalloc ushort[8];
-        for (int i = 0; i < 4; i++)
-        {
-            newchks[i*2] = (ushort)(checksum[i] >> 16);
-            newchks[(i * 2) + 1] = (ushort)checksum[i];
-        }
-
-        for (int i = 0; i < newchks.Length; i++)
-        {
-            var dest = data.AsSpan(0x10 + (2 * i));
-            var chk = newchks[newchks.Length - 1 - i];
-            WriteUInt16BigEndian(dest, chk);
-        }
-
-        return data;
+        get => TimeSpan.FromSeconds(TotalSeconds);
+        set => TotalSeconds = value.TotalSeconds;
     }
-    // Trainer Info
-    public override GameVersion Version { get => GameVersion.XD; protected set { } }
-    public override string OT { get => GetString(Trainer1 + 0x00, 20); set => SetString(Data.AsSpan(Trainer1 + 0x00, 20), value.AsSpan(), 10, StringConverterOption.ClearZero); }
-    public override int SID { get => ReadUInt16BigEndian(Data.AsSpan(Trainer1 + 0x2C)); set => WriteUInt16BigEndian(Data.AsSpan(Trainer1 + 0x2C), (ushort)value); }
-    public override int TID { get => ReadUInt16BigEndian(Data.AsSpan(Trainer1 + 0x2E)); set => WriteUInt16BigEndian(Data.AsSpan(Trainer1 + 0x2E), (ushort)value); }
 
-    public override int Gender { get => Data[Trainer1 + 0x8E0]; set => Data[Trainer1 + 0x8E0] = (byte)value; }
-    public override uint Money { get => ReadUInt32BigEndian(Data.AsSpan(Trainer1 + 0x8E4)); set => WriteUInt32BigEndian(Data.AsSpan(Trainer1 + 0x8E4), value); }
-    public uint Coupons { get => ReadUInt32BigEndian(Data.AsSpan(Trainer1 + 0x8E8)); set => WriteUInt32BigEndian(Data.AsSpan(Trainer1 + 0x8E8), value); }
+    private double TotalSeconds
+    {
+        get
+        {
+            if (Japanese)
+                return ReadSingleBigEndian(Data[(Config + 0x20)..]);
+            return ReadDoubleBigEndian(Data[(Config + 0x30)..]);
+        }
+        set
+        {
+            if (Japanese)
+                WriteSingleBigEndian(Data[(Config + 0x20)..], (float)value);
+            else
+                WriteDoubleBigEndian(Data[(Config + 0x30)..], value);
+        }
+    }
+
+    public override int PlayedHours
+    {
+        get => (ushort)PlayedSpan.TotalHours;
+        set { var time = PlayedSpan; PlayedSpan = time - TimeSpan.FromHours(time.TotalHours) + TimeSpan.FromHours(value); }
+    }
+
+    public override int PlayedMinutes
+    {
+        get => (byte)PlayedSpan.Minutes;
+        set { var time = PlayedSpan; PlayedSpan = time - TimeSpan.FromMinutes(time.Minutes) + TimeSpan.FromMinutes(value); }
+    }
+
+    public override int PlayedSeconds
+    {
+        get => (byte)PlayedSpan.Seconds;
+        set { var time = PlayedSpan; PlayedSpan = time - TimeSpan.FromSeconds(time.Seconds) + TimeSpan.FromSeconds(value); }
+    }
+
+    // Trainer Info
+    public override GameVersion Version { get => GameVersion.XD; set { } }
+    public Span<byte> OriginalTrainerTrash => Data.Slice(Trainer1 + 0x00, 20);
+    public override string OT { get => GetString(OriginalTrainerTrash); set => SetString(OriginalTrainerTrash, value, 10, StringConverterOption.ClearZero); }
+    public override uint ID32 { get => ReadUInt32BigEndian(Data[(Trainer1 + 0x2C)..]); set => WriteUInt32BigEndian(Data[(Trainer1 + 0x2C)..], value); }
+    public override ushort SID16 { get => ReadUInt16BigEndian(Data[(Trainer1 + 0x2C)..]); set => WriteUInt16BigEndian(Data[(Trainer1 + 0x2C)..], value); }
+    public override ushort TID16 { get => ReadUInt16BigEndian(Data[(Trainer1 + 0x2E)..]); set => WriteUInt16BigEndian(Data[(Trainer1 + 0x2E)..], value); }
+
+    public override byte Gender { get => Data[Trainer1 + 0x8E0]; set => Data[Trainer1 + 0x8E0] = value; }
+    public override uint Money { get => ReadUInt32BigEndian(Data[(Trainer1 + 0x8E4)..]); set => WriteUInt32BigEndian(Data[(Trainer1 + 0x8E4)..], value); }
+    public uint Coupons { get => ReadUInt32BigEndian(Data[(Trainer1 + 0x8E8)..]); set => WriteUInt32BigEndian(Data[(Trainer1 + 0x8E8)..], value); }
 
     // Storage
     public override int GetPartyOffset(int slot) => Party + (SIZE_STORED * slot);
     private int GetBoxInfoOffset(int box) => Box + (((30 * SIZE_STORED) + 0x14) * box);
     public override int GetBoxOffset(int box) => GetBoxInfoOffset(box) + 20;
-    public override string GetBoxName(int box) => GetString(GetBoxInfoOffset(box), 16);
+    public string GetBoxName(int box) => GetString(Data.Slice(GetBoxInfoOffset(box), 16));
 
-    public override void SetBoxName(int box, string value)
+    public void SetBoxName(int box, ReadOnlySpan<char> value)
     {
-        SetString(Data.AsSpan(GetBoxInfoOffset(box), 20), value.AsSpan(), 8, StringConverterOption.ClearZero);
+        SetString(Data.Slice(GetBoxInfoOffset(box), 20), value, 8, StringConverterOption.ClearZero);
     }
 
-    protected override PKM GetPKM(byte[] data)
-    {
-        if (data.Length != SIZE_STORED)
-            Array.Resize(ref data, SIZE_STORED);
-        return new XK3(data);
-    }
+    protected override XK3 GetPKM(Memory<byte> data) => new(data);
+    protected override void DecryptPKM(Span<byte> data) { }
+    public override XK3 GetPartySlot(ReadOnlySpan<byte> data) => GetStoredSlot(data);
 
-    protected override byte[] DecryptPKM(byte[] data) => data;
-    public override PKM GetPartySlot(byte[] data, int offset) => GetStoredSlot(data, offset);
-
-    public override PKM GetStoredSlot(byte[] data, int offset)
+    public override XK3 GetStoredSlot(ReadOnlySpan<byte> data)
     {
         // Get Shadow Data
-        var pk = (XK3)base.GetStoredSlot(data, offset);
-        if (pk.ShadowID > 0 && pk.ShadowID < ShadowInfo.Count)
-            pk.Purification = ShadowInfo[pk.ShadowID].Purification;
+        var pk = (XK3)base.GetStoredSlot(data);
+
+        // Get Shadow Data from save
+        var id = pk.ShadowID;
+        if (id == 0 || id >= ShadowInfo.Count)
+            return pk;
+
+        var entry = ShadowInfo[pk.ShadowID];
+        pk.Purification = entry.Purification;
+        pk.IsShadow = !entry.IsPurified;
         return pk;
     }
 
@@ -306,18 +289,23 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
         if (pk is not XK3 xk3)
             return; // shouldn't ever hit
 
-        if (xk3.CurrentRegion == 0)
-            xk3.CurrentRegion = 2; // NTSC-U
-        if (xk3.OriginalRegion == 0)
-            xk3.OriginalRegion = 2; // NTSC-U
+        var oldRegion = xk3.CurrentRegion;
+        xk3.CurrentRegion = CurrentRegion;
+        xk3.OriginalRegion = OriginalRegion;
+
+        StringConverter3GC.RemapGlyphsBetweenRegions3GC(xk3.NicknameTrash, oldRegion, xk3.CurrentRegion, xk3.Language);
+        StringConverter3GC.RemapGlyphsBetweenRegions3GC(xk3.OriginalTrainerTrash, oldRegion, xk3.CurrentRegion, xk3.Language);
+        xk3.ResetNicknameDisplay();
 
         // Set Shadow Data back to save
-        if (xk3.ShadowID <= 0 || xk3.ShadowID >= ShadowInfo.Count)
+        var id = xk3.ShadowID;
+        if (id == 0 || id >= ShadowInfo.Count)
             return;
 
-        var entry = ShadowInfo[xk3.ShadowID];
+        var entry = ShadowInfo[id];
         entry.Purification = xk3.Purification;
-        entry.Species = xk3.Species;
+      //entry.IsPurified = !xk3.IsShadow;
+      //entry.Species = xk3.Species;
         entry.PID = xk3.PID;
         entry.IV_HP  = xk3.IV_HP ;
         entry.IV_ATK = xk3.IV_ATK;
@@ -341,10 +329,10 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
         {
             entry.Species = pk.Species;
             entry.PID = pk.PID;
-            entry.TID = pk.TID;
-            entry.SID = pk.SID;
+            entry.TID16 = pk.TID16;
+            entry.SID16 = pk.SID16;
         }
-        if (entry.Matches(pk.Species, pk.PID, pk.TID, pk.SID))
+        if (entry.Matches(pk.Species, pk.PID, pk.TID16, pk.SID16))
         {
             entry.Seen = true;
             entry.Owned = true;
@@ -353,40 +341,25 @@ public sealed class SAV3XD : SaveFile, IGCSaveFile
         */
     }
 
-    public override IReadOnlyList<InventoryPouch> Inventory
-    {
-        get
-        {
-            InventoryPouch[] pouch =
-            {
-                new InventoryPouch3GC(InventoryType.Items, Legal.Pouch_Items_XD, 999, OFS_PouchHeldItem, 30), // 20 COLO, 30 XD
-                new InventoryPouch3GC(InventoryType.KeyItems, Legal.Pouch_Key_XD, 1, OFS_PouchKeyItem, 43),
-                new InventoryPouch3GC(InventoryType.Balls, Legal.Pouch_Ball_RS, 999, OFS_PouchBalls, 16),
-                new InventoryPouch3GC(InventoryType.TMHMs, Legal.Pouch_TM_RS, 999, OFS_PouchTMHM, 64),
-                new InventoryPouch3GC(InventoryType.Berries, Legal.Pouch_Berries_RS, 999, OFS_PouchBerry, 46),
-                new InventoryPouch3GC(InventoryType.Medicine, Legal.Pouch_Cologne_XD, 999, OFS_PouchCologne, 3), // Cologne
-                new InventoryPouch3GC(InventoryType.BattleItems, Legal.Pouch_Disc_XD, 1, OFS_PouchDisc, 60),
-            };
-            return pouch.LoadAll(Data);
-        }
-        set => value.SaveAll(Data);
-    }
+    public override PlayerBag3XD Inventory => new(this);
 
     // Daycare Structure:
     // 0x00 -- Occupied
     // 0x01 -- Deposited Level
     // 0x02-0x03 -- unused?
     // 0x04-0x07 -- Initial EXP
-    public override int GetDaycareSlotOffset(int loc, int slot) { return DaycareOffset + 8; }
-    public override uint? GetDaycareEXP(int loc, int slot) { return null; }
-    public override bool? IsDaycareOccupied(int loc, int slot) { return null; }
-    public override void SetDaycareEXP(int loc, int slot, uint EXP) { /* todo */ }
-    public override void SetDaycareOccupied(int loc, int slot, bool occupied) { /* todo */ }
+    public int DaycareSlotCount => 1;
+    public bool IsDaycareOccupied(int slot) => Data[DaycareOffset] != 0;
+    public void SetDaycareOccupied(int slot, bool occupied) => Data[DaycareOffset] = (byte)(occupied ? 1 : 0);
+    public byte DaycareDepositLevel { get => Data[DaycareOffset + 1]; set => Data[DaycareOffset + 1] = value; }
+    public uint GetDaycareEXP(int index) => ReadUInt32BigEndian(Data[(DaycareOffset + 4)..]);
+    public void SetDaycareEXP(int index, uint value) => WriteUInt32BigEndian(Data[(DaycareOffset + 4)..], value);
+    public Memory<byte> GetDaycareSlot(int slot) => Buffer.Slice(DaycareOffset + 8, PokeCrypto.SIZE_3XSTORED);
 
-    public override string GetString(ReadOnlySpan<byte> data) => StringConverter3GC.GetString(data);
-
+    public override string GetString(ReadOnlySpan<byte> data)
+        => StringConverter3GC.GetString(data);
+    public override int LoadString(ReadOnlySpan<byte> data, Span<char> destBuffer)
+        => StringConverter3GC.LoadString(data, destBuffer);
     public override int SetString(Span<byte> destBuffer, ReadOnlySpan<char> value, int maxLength, StringConverterOption option)
-    {
-        return StringConverter3GC.SetString(destBuffer, value, maxLength, option);
-    }
+        => StringConverter3GC.SetString(destBuffer, value, maxLength, option);
 }

@@ -23,6 +23,7 @@ public enum BoxManipType
     SortFavorite,
     SortParty,
     SortShiny,
+    SortAlpha,
     SortRandom,
 
     SortUsage,
@@ -30,9 +31,13 @@ public enum BoxManipType
     SortTraining,
     SortOwner,
     SortType,
+    SortTypeTera,
     SortVersion,
     SortBST,
     SortCP,
+    SortScale,
+    SortRibbons,
+    SortMarks,
     SortLegal,
     SortEncounterType,
 

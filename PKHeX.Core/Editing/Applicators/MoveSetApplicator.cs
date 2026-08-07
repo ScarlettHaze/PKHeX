@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System;
 
 namespace PKHeX.Core;
 
@@ -9,112 +7,109 @@ namespace PKHeX.Core;
 /// </summary>
 public static class MoveSetApplicator
 {
-    /// <summary>
-    /// Gets a moveset for the provided <see cref="PKM"/> data.
-    /// </summary>
-    /// <param name="pk">PKM to generate for</param>
-    /// <param name="random">Full movepool &amp; shuffling</param>
-    /// <returns>4 moves</returns>
-    public static int[] GetMoveSet(this PKM pk, bool random = false)
+    extension(PKM pk)
     {
-        var la = new LegalityAnalysis(pk);
-        var moves = la.GetMoveSet(random);
-
-        if (random)
-            return moves;
-
-        var clone = pk.Clone();
-        clone.SetMoves(moves);
-        clone.SetMaximumPPCurrent(moves);
-        var newLa = new LegalityAnalysis(clone);
-
-        // ReSharper disable once TailRecursiveCall
-        return newLa.Valid ? moves : GetMoveSet(pk, true);
-    }
-
-    /// <summary>
-    /// Gets a moveset for the provided <see cref="PKM"/> data.
-    /// </summary>
-    /// <param name="la">Precomputed optional</param>
-    /// <param name="random">Full movepool &amp; shuffling</param>
-    /// <returns>4 moves</returns>
-    public static int[] GetMoveSet(this LegalityAnalysis la, bool random = false)
-    {
-        int[] m = la.GetSuggestedCurrentMoves(random ? MoveSourceType.All : MoveSourceType.Encounter);
-
-        var learn = la.GetSuggestedMovesAndRelearn();
-        if (!m.All(z => learn.Contains(z)))
-            m = m.Intersect(learn).ToArray();
-
-        if (random && !la.Entity.IsEgg)
-            Util.Shuffle(m.AsSpan());
-
-        const int count = 4;
-        if (m.Length > count)
-            return m.SliceEnd(m.Length - count);
-        Array.Resize(ref m, count);
-        return m;
-    }
-
-    /// <summary>
-    /// Fetches <see cref="PKM.RelearnMoves"/> based on the provided <see cref="LegalityAnalysis"/>.
-    /// </summary>
-    /// <param name="pk">Pokémon to modify.</param>
-    /// <param name="enc">Encounter the relearn moves should be suggested for. If not provided, will try to detect it via legality analysis. </param>
-    /// <returns><see cref="PKM.RelearnMoves"/> best suited for the current <see cref="PKM"/> data.</returns>
-    public static IReadOnlyList<int> GetSuggestedRelearnMoves(this PKM pk, IEncounterTemplate? enc = null) => GetSuggestedRelearnMoves(new LegalityAnalysis(pk), enc);
-
-    /// <summary>
-    /// Fetches <see cref="PKM.RelearnMoves"/> based on the provided <see cref="LegalityAnalysis"/>.
-    /// </summary>
-    /// <param name="legal"><see cref="LegalityAnalysis"/> which contains parsed information pertaining to legality.</param>
-    /// <param name="enc">Encounter the relearn moves should be suggested for. If not provided, will try to detect it via legality analysis. </param>
-    /// <returns><see cref="PKM.RelearnMoves"/> best suited for the current <see cref="PKM"/> data.</returns>
-    public static IReadOnlyList<int> GetSuggestedRelearnMoves(this LegalityAnalysis legal, IEncounterTemplate? enc = null)
-    {
-        enc ??= legal.EncounterOriginal;
-        var m = legal.GetSuggestedRelearnMovesFromEncounter(enc);
-        if (m.Any(z => z != 0))
-            return m;
-
-        if (enc is MysteryGift or EncounterEgg)
-            return m;
-
-        if (enc is EncounterSlot6AO {CanDexNav: true} dn)
+        /// <summary>
+        /// Applies a new legal moveset to the <see cref="pk"/>, with option to apply random moves instead.
+        /// </summary>
+        /// <param name="random">True to apply a random moveset, false to apply a level-up moveset.</param>
+        public void SetMoveset(bool random = false)
         {
-            var moves = legal.Info.Moves;
-            for (int i = 0; i < moves.Length; i++)
-            {
-                if (!moves[i].ShouldBeInRelearnMoves())
-                    continue;
-
-                var move = legal.Entity.GetMove(i);
-                if (dn.CanBeDexNavMove(move))
-                    return new[] { move, 0, 0, 0 };
-            }
+            Span<ushort> moves = stackalloc ushort[4];
+            pk.GetMoveSet(moves, random);
+            pk.SetMoves(moves);
         }
 
-        if (enc is EncounterSlot8b { IsUnderground: true } ug)
+        /// <summary>
+        /// Applies the suggested Relearn Moves to the <see cref="pk"/>.
+        /// </summary>
+        /// <param name="la">Legality Analysis to use.</param>
+        public void SetRelearnMoves(LegalityAnalysis la)
         {
-            var moves = legal.Info.Moves;
-            for (int i = 0; i < moves.Length; i++)
-            {
-                if (!moves[i].ShouldBeInRelearnMoves())
-                    continue;
-
-                var move = legal.Entity.GetMove(i);
-                if (ug.CanBeUndergroundMove(move))
-                    return new[] { move, 0, 0, 0 };
-            }
-
-            if (ug.GetBaseEggMove(out int any))
-                return new[] { any, 0, 0, 0 };
+            Span<ushort> moves = stackalloc ushort[4];
+            la.GetSuggestedRelearnMoves(moves);
+            pk.SetRelearnMoves(moves);
         }
 
-        var encounter = EncounterSuggestion.GetSuggestedMetInfo(legal.Entity);
-        if (encounter is IRelearn {Relearn: {Count: > 0} r})
-            return r;
+        /// <summary>
+        /// Gets a moveset for the provided <see cref="PKM"/> data.
+        /// </summary>
+        /// <param name="moves">Result storage</param>
+        /// <param name="random">Full movepool &amp; shuffling</param>
+        /// <returns>4 moves</returns>
+        public void GetMoveSet(Span<ushort> moves, bool random = false)
+        {
+            var la = new LegalityAnalysis(pk);
+            la.GetMoveSet(moves, random);
 
-        return m;
+            if (random)
+                return;
+
+            var clone = pk.Clone();
+            clone.SetMoves(moves);
+            var newLa = new LegalityAnalysis(clone);
+            if (!newLa.Valid)
+                newLa.GetMoveSet(moves, true);
+        }
+    }
+
+    extension(LegalityAnalysis la)
+    {
+        /// <summary>
+        /// Gets a moveset for the provided <see cref="PKM"/> data.
+        /// </summary>
+        /// <param name="moves">Result storage</param>
+        /// <param name="random">Full movepool &amp; shuffling</param>
+        /// <returns>4 moves</returns>
+        public void GetMoveSet(Span<ushort> moves, bool random = false)
+        {
+            la.GetSuggestedCurrentMoves(moves, random ? MoveSourceType.All : MoveSourceType.Encounter);
+            if (random && !la.Entity.IsEgg)
+                Util.Rand.Shuffle(moves);
+        }
+
+        /// <summary>
+        /// Fetches <see cref="PKM.RelearnMoves"/> based on the provided <see cref="LegalityAnalysis"/>.
+        /// </summary>
+        /// <param name="moves">Result storage</param>
+        /// <param name="enc">Encounter the relearn moves should be suggested for. If not provided, will use the original encounter from the analysis. </param>
+        /// <returns><see cref="PKM.RelearnMoves"/> best suited for the current <see cref="PKM"/> data.</returns>
+        public void GetSuggestedRelearnMoves(Span<ushort> moves, IEncounterTemplate? enc = null)
+        {
+            enc ??= la.EncounterOriginal;
+            la.GetSuggestedRelearnMovesFromEncounter(moves, enc);
+            if (moves[0] != 0)
+                return;
+
+            if (enc is MysteryGift or IEncounterEgg)
+                return;
+
+            if (enc is ISingleMoveBonus {IsMoveBonusPossible: true} bonus)
+            {
+                var chk = la.Info.Moves;
+                for (int i = 0; i < chk.Length; i++)
+                {
+                    if (!chk[i].ShouldBeInRelearnMoves())
+                        continue;
+
+                    var move = la.Entity.GetMove(i);
+                    if (!bonus.IsMoveBonus(move))
+                        continue;
+                    moves.Clear();
+                    moves[0] = move;
+                    return;
+                }
+                if (bonus.IsMoveBonusRequired && bonus.TryGetRandomMoveBonus(out var bonusMove))
+                {
+                    moves.Clear();
+                    moves[0] = bonusMove;
+                    return;
+                }
+            }
+
+            var encounter = EncounterSuggestion.GetSuggestedMetInfo(la.Entity);
+            if (encounter is IRelearn {Relearn: {HasMoves:true} r})
+                r.CopyTo(moves);
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -18,18 +18,18 @@ public sealed class MemoryStrings
     {
         s = strings;
         memories = new Lazy<List<ComboItem>>(GetMemories);
-        none = new Lazy<List<ComboItem>>(() => Util.GetCBList(new[] {string.Empty}));
+        none = new Lazy<List<ComboItem>>(() => Util.GetCBList([string.Empty]));
         species = new Lazy<List<ComboItem>>(() => Util.GetCBList(s.specieslist));
-        item6 = new Lazy<List<ComboItem>>(() => GetItems(6));
-        item8 = new Lazy<List<ComboItem>>(() => GetItems(8));
+        item6 = new Lazy<List<ComboItem>>(() => GetItems(EntityContext.Gen6));
+        item8 = new Lazy<List<ComboItem>>(() => GetItems(EntityContext.Gen8));
         genloc = new Lazy<List<ComboItem>>(() => Util.GetCBList(s.genloc));
         moves = new Lazy<List<ComboItem>>(() => Util.GetCBList(s.movelist));
-        specific = new Lazy<List<ComboItem>>(() => Util.GetCBList(s.metXY_00000, Locations6.Met0));
+        specific = new Lazy<List<ComboItem>>(() => Util.GetCBList(s.Gen6.Met0, Locations6.Met0));
     }
 
-    private List<ComboItem> GetItems(int memoryGen)
+    private List<ComboItem> GetItems(EntityContext context)
     {
-        var permit = Memories.GetMemoryItemParams(memoryGen);
+        var permit = Memories.GetMemoryItemParams(context);
         var asInt = permit.ToArray();
         return Util.GetCBList(s.itemlist, asInt);
     }
@@ -48,7 +48,7 @@ public sealed class MemoryStrings
 
     private List<ComboItem> GetMemories()
     {
-        var mems = s.memories.AsSpan(0);
+        var mems = s.memories.AsSpan();
         var list = new List<ComboItem> {new(mems[0], 0)}; // none at top
         Util.AddCBWithOffset(list, mems[1..], 1); // sorted the rest
         return list;

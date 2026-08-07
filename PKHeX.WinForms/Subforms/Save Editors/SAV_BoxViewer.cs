@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Drawing;
 using System.Windows.Forms;
 using PKHeX.Core;
 using PKHeX.WinForms.Controls;
@@ -9,15 +10,25 @@ public sealed partial class SAV_BoxViewer : Form
 {
     private readonly SAVEditor parent;
 
-    public SAV_BoxViewer(SAVEditor p, SlotChangeManager m)
+    public SAV_BoxViewer(SAVEditor p, SlotChangeManager m, int box)
     {
-        parent = p;
         InitializeComponent();
+
+        parent = p;
+        StartPosition = FormStartPosition.Manual;
         int deltaW = Width - Box.BoxPokeGrid.Width;
         int deltaH = Height - Box.BoxPokeGrid.Height;
         Box.Editor = new BoxEdit(m.SE.SAV);
         Box.Setup(m);
         Box.InitializeGrid();
+
+        if (Application.IsDarkModeEnabled)
+        {
+            WinFormsTranslator.ReformatDark(Box.B_BoxLeft);
+            WinFormsTranslator.ReformatDark(Box.B_BoxRight);
+            WinFormsTranslator.ReformatDark(B_BoxSwap);
+            WinFormsTranslator.ReformatDark(Box.CB_BoxSelect);
+        }
 
         Width = Box.BoxPokeGrid.Width + deltaW + 2;
         Height = Box.BoxPokeGrid.Height + deltaH + 2;
@@ -28,30 +39,51 @@ public sealed partial class SAV_BoxViewer : Form
         CenterToParent();
 
         AllowDrop = true;
-        GiveFeedback += (sender, e) => e.UseDefaultCursors = false;
+        GiveFeedback += (_, e) => e.UseDefaultCursors = false;
         DragEnter += Main_DragEnter;
-        DragDrop += (sender, e) =>
+        DragDrop += (_, _) =>
         {
             Cursor = DefaultCursor;
-            System.Media.SystemSounds.Asterisk.Play();
+            WinFormsUtil.Asterisk();
         };
         Owner = p.ParentForm;
+        Load += (_, _) => PositionRelativeToParent();
 
-        MouseWheel += (s, e) =>
+        MouseWheel += (_, e) =>
         {
             if (parent.menu.mnuVSD.Visible)
                 return;
             Box.CurrentBox = e.Delta > 1 ? Box.Editor.MoveLeft() : Box.Editor.MoveRight();
+            m.MouseRestart();
         };
 
-        foreach (PictureBox pb in Box.SlotPictureBoxes)
-            pb.ContextMenuStrip = parent.SlotPictureBoxes[0].ContextMenuStrip;
-        Box.ResetBoxNames(); // fix box names
+        var mnu = parent.SlotPictureBoxes[0].ContextMenuStrip;
+        foreach (var pb in Box.SlotPictureBoxes)
+            pb.ContextMenuStrip = mnu;
+
+        Box.ResetBoxNames(box); // fix box names
         Box.ResetSlots(); // refresh box background
-        p.EditEnv.Slots.Publisher.Subscribers.Add(Box);
+        p.EditEnv.Slots.Publisher.Subscribe(Box);
     }
 
-    public int CurrentBox => Box.CurrentBox;
+    private void PositionRelativeToParent()
+    {
+        var parentForm = parent.ParentForm;
+        if (parentForm is null)
+            return;
+
+        var parentBoxLeft = parent.Box.B_BoxLeft;
+        var thisBoxLeft = Box.B_BoxLeft;
+        if (!parentBoxLeft.IsHandleCreated || !thisBoxLeft.IsHandleCreated)
+            return;
+
+        var parentBoxLeftScreen = parentBoxLeft.PointToScreen(Point.Empty);
+        var thisBoxLeftScreen = thisBoxLeft.PointToScreen(Point.Empty);
+        var newX = parentForm.Location.X + parentForm.Width;
+        var newY = Location.Y + (parentBoxLeftScreen.Y - thisBoxLeftScreen.Y);
+        Location = new Point(newX, newY);
+    }
+
     private void PB_BoxSwap_Click(object sender, EventArgs e) => Box.CurrentBox = parent.SwapBoxesViewer(Box.CurrentBox);
 
     private static void Main_DragEnter(object? sender, DragEventArgs? e)
@@ -60,7 +92,7 @@ public sealed partial class SAV_BoxViewer : Form
             return;
         if (e.AllowedEffect == (DragDropEffects.Copy | DragDropEffects.Link)) // external file
             e.Effect = DragDropEffects.Copy;
-        else if (e.Data != null) // within
+        else if (e.Data is not null) // within
             e.Effect = DragDropEffects.Move;
     }
 
@@ -68,6 +100,6 @@ public sealed partial class SAV_BoxViewer : Form
     {
         // Remove viewer from manager list
         Box.M?.Boxes.Remove(Box);
-        parent.EditEnv.Slots.Publisher.Subscribers.Remove(Box);
+        parent.EditEnv.Slots.Publisher.Unsubscribe(Box);
     }
 }

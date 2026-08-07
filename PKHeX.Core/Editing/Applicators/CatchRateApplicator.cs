@@ -1,39 +1,56 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
 /// <summary>
-/// Logic for applying a <see cref="PK1.Catch_Rate"/> value.
+/// Logic for applying a <see cref="PK1.CatchRate"/> value.
 /// </summary>
 public static class CatchRateApplicator
 {
-    public static int GetSuggestedCatchRate(PK1 pk1, SaveFile sav)
+    /// <summary>
+    /// Gets the suggested <see cref="PK1.CatchRate"/> for the entity.
+    /// </summary>
+    public static int GetSuggestedCatchRate(PK1 pk, SaveFile sav)
     {
-        var la = new LegalityAnalysis(pk1);
-        return GetSuggestedCatchRate(pk1, sav, la);
+        var la = new LegalityAnalysis(pk);
+        return GetSuggestedCatchRate(pk, sav, la);
     }
 
-    public static int GetSuggestedCatchRate(PK1 pk1, SaveFile sav, LegalityAnalysis la)
+    /// <summary>
+    /// Gets the suggested <see cref="PK1.CatchRate"/> for the entity.
+    /// </summary>
+    public static byte GetSuggestedCatchRate(PK1 pk, SaveFile sav, LegalityAnalysis la)
     {
+        // If it is already valid, just use the current value.
         if (la.Valid)
-            return pk1.Catch_Rate;
+            return pk.CatchRate;
 
+        // If it has ever visited generation 2, the Held Item can be removed prior to trade back.
         if (la.Info.Generation == 2)
             return 0;
 
-        var v = la.EncounterMatch;
-        switch (v)
+        // Return the encounter's original value.
+        var enc = la.EncounterMatch;
+        switch (enc)
         {
-            case EncounterTrade1 c:
-                return c.GetInitialCatchRate();
-            case EncounterStatic1E { Version: GameVersion.Stadium, Species: (int)Species.Psyduck}:
-                return pk1.Japanese ? 167 : 168; // Amnesia Psyduck has different catch rates depending on language
+            case EncounterGift1 { Trainer: EncounterGift1.TrainerType.Stadium, Species: (int)Species.Psyduck }:
+                return pk.Japanese ? (byte)167 : (byte)168; // Amnesia Psyduck has different catch rates depending on language
             default:
-            {
-                if (sav.Version.Contains(v.Version) || v.Version.Contains(sav.Version))
-                    return sav.Personal[v.Species].CatchRate;
-                if (!GameVersion.RB.Contains(v.Version))
-                    return PersonalTable.Y[v.Species].CatchRate;
-                return PersonalTable.RB[v.Species].CatchRate;
-            }
+                var pt = GetPersonalTable(sav, enc.Version);
+                var pi = pt[enc.Species];
+                return pi.CatchRate;
         }
+    }
+
+    private static PersonalTable1 GetPersonalTable(SaveFile sav, GameVersion version)
+    {
+        if (sav.Personal is PersonalTable1 pt)
+        {
+            var other = sav.Version;
+            if (other.Contains(version) || version.Contains(other))
+                return pt;
+        }
+
+        if (!GameVersion.RB.Contains(version))
+            return PersonalTable.Y;
+        return PersonalTable.RB;
     }
 }

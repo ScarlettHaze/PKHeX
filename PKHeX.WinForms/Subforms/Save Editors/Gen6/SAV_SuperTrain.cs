@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Windows.Forms;
 using PKHeX.Core;
@@ -13,18 +13,18 @@ public partial class SAV_SuperTrain : Form
 
     private readonly string[] trba;
 
-    public SAV_SuperTrain(SaveFile sav)
+    public SAV_SuperTrain(SAV6 sav)
     {
         InitializeComponent();
         WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
         SAV = (SAV6)(Origin = sav).Clone();
         trba = GameInfo.Strings.trainingbags;
         trba[0] = "---";
-        STB = ((ISaveBlock6Main) SAV).SuperTrain;
+        STB = ((ISaveBlock6Main)SAV).SuperTrain;
         string[] stages = GameInfo.Strings.trainingstage;
         listBox1.Items.Clear();
         for (int i = 0; i < 32; i++)
-            listBox1.Items.Add($"{i+1:00} - {stages[i]}");
+            listBox1.Items.Add($"{i + 1:00} - {stages[i]}");
 
         Setup();
     }
@@ -35,10 +35,10 @@ public partial class SAV_SuperTrain : Form
         dataGridView1.Columns.Clear();
         {
             CB_Species1.InitializeBinding();
-            CB_Species1.DataSource = new BindingSource(GameInfo.FilteredSources.Species, null);
+            CB_Species1.DataSource = new BindingSource(GameInfo.FilteredSources.Species, string.Empty);
 
             CB_Species2.InitializeBinding();
-            CB_Species2.DataSource = new BindingSource(GameInfo.FilteredSources.Species, null);
+            CB_Species2.DataSource = new BindingSource(GameInfo.FilteredSources.Species, string.Empty);
         }
         listBox1.SelectedIndex = 0;
         FillTrainingBags();
@@ -61,7 +61,7 @@ public partial class SAV_SuperTrain : Form
         {
             foreach (string t in trba)
             {
-                if (t.Length > 0)
+                if (t.Length != 0)
                     dgvBag.Items.Add(t);
             }
 
@@ -86,8 +86,9 @@ public partial class SAV_SuperTrain : Form
         {
             if (e.ColumnIndex != 1)
                 return;
-            ComboBox comboBox = (ComboBox)dataGridView1.EditingControl;
-            comboBox.DroppedDown = true;
+            if (sender is not DataGridView { EditingControl: ComboBox cb })
+                return;
+            cb.DroppedDown = true;
         }
         catch { System.Diagnostics.Debug.WriteLine("Failed to modify item."); }
     }
@@ -103,10 +104,10 @@ public partial class SAV_SuperTrain : Form
         loading = true;
         var holder1 = STB.GetHolder1(index);
         var holder2 = STB.GetHolder2(index);
-        CB_Species1.SelectedValue = holder1.Species;
+        CB_Species1.SelectedValue = (int)holder1.Species;
         MTB_Gender1.Text = holder1.Gender.ToString();
         MTB_Form1.Text = holder1.Form.ToString();
-        CB_Species2.SelectedValue = holder2.Species;
+        CB_Species2.SelectedValue = (int)holder2.Species;
         MTB_Gender2.Text = holder2.Gender.ToString();
         MTB_Form2.Text = holder2.Form.ToString();
         TB_Time1.Text = STB.GetTime1(index).ToString(CultureInfo.InvariantCulture);
@@ -120,13 +121,13 @@ public partial class SAV_SuperTrain : Form
         int emptyslots = 0;
         for (int i = 0; i < 12; i++)
         {
-            var bag = dataGridView1.Rows[i].Cells[1].Value.ToString();
-            if (Array.IndexOf(trba, bag) == 0)
+            var bag = dataGridView1.Rows[i].Cells[1].Value!.ToString();
+            if (trba.IndexOf(bag) <= 0)
             {
                 emptyslots++;
                 continue;
             }
-            STB.SetBag(i - emptyslots, (byte)Array.IndexOf(trba, bag));
+            STB.SetBag(i - emptyslots, (byte)trba.IndexOf(bag));
         }
 
         Origin.CopyChangesFrom(SAV);
@@ -144,7 +145,7 @@ public partial class SAV_SuperTrain : Form
         if (index < 0 || loading)
             return;
         var holder = STB.GetHolder1(index);
-        holder.Species = WinFormsUtil.GetIndex(CB_Species1);
+        holder.Species = (ushort)WinFormsUtil.GetIndex(CB_Species1);
     }
 
     private void ChangeRecordMisc1(object sender, EventArgs e)
@@ -165,7 +166,7 @@ public partial class SAV_SuperTrain : Form
         if (index < 0 || loading)
             return;
         var holder = STB.GetHolder2(index);
-        holder.Species = WinFormsUtil.GetIndex(CB_Species2);
+        holder.Species = (ushort)WinFormsUtil.GetIndex(CB_Species2);
     }
 
     private void ChangeRecordMisc2(object sender, EventArgs e)

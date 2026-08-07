@@ -1,9 +1,7 @@
-﻿namespace PKHeX.Core;
+namespace PKHeX.Core;
 
-public class EventUnlocker8b : EventUnlocker<SAV8BS>
+public sealed class EventUnlocker8b(SAV8BS sav) : EventUnlocker<SAV8BS>(sav)
 {
-    public EventUnlocker8b(SAV8BS sav) : base(sav) { }
-
     public bool UnlockReadySpiritomb => SAV.UgSaveData.TalkedNPC < 32;
     public bool UnlockReadyBoxLegend => SAV.FlagWork.GetFlag(308) && SAV.FlagWork.GetWork(84) != 5; // FE_D05R0114_SPPOKE_GET, WK_SCENE_D05R0114 (1-3 story related, 4 = captured, 5 = can retry)
     public bool UnlockReadyShaymin => SAV.FlagWork.GetFlag(545) || !(SAV.FlagWork.GetWork(276) == 1 && SAV.Zukan.HasNationalDex && SAV.Items.GetItemQuantity(452) == 1 && SAV.FlagWork.GetSystemFlag(5)); // HAIHUEVENT_ID_D30, Oak's Letter
@@ -96,5 +94,13 @@ public class EventUnlocker8b : EventUnlocker<SAV8BS>
         SAV.FlagWork.SetFlag(245, false); // clear met
         SAV.FlagWork.SetFlag(532, false); // clear vanish
         SAV.Encounter.Roamer2Encount = 0; // not actively roaming
+    }
+
+    public void UnlockFashion()
+    {
+        const int FASHION_START = 1246;
+        const int FASHION_END = 1257;
+        for (int i = FASHION_START; i <= FASHION_END; i++)
+            SAV.FlagWork.SetFlag(i, true);
     }
 }

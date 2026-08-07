@@ -1,11 +1,11 @@
-﻿using System;
+using System;
 
 namespace PKHeX.Core;
 
 public static class UpdateUtil
 {
     /// <summary>
-    /// Gets the latest version of PKHeX according to the Github API
+    /// Gets the latest version of PKHeX according to the GitHub API
     /// </summary>
     /// <returns>A version representing the latest available version of PKHeX, or null if the latest version could not be determined</returns>
     public static Version? GetLatestPKHeXVersion()
@@ -28,7 +28,7 @@ public static class UpdateUtil
         if (second == -1)
             return null;
 
-        var tagString = responseJson[first..second];
+        var tagString = responseJson.AsSpan()[first..second];
         return !Version.TryParse(tagString, out var latestVersion) ? null : latestVersion;
     }
 }

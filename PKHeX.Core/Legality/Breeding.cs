@@ -1,6 +1,3 @@
-﻿using System;
-using System.Collections.Generic;
-using static PKHeX.Core.GameVersion;
 using static PKHeX.Core.Species;
 
 namespace PKHeX.Core;
@@ -11,82 +8,95 @@ namespace PKHeX.Core;
 public static class Breeding
 {
     /// <summary>
-    /// Checks if the game has a Daycare, and returns true if it does.
+    /// Species that have special handling for breeding.
     /// </summary>
-    /// <param name="game">Version ID to check for.</param>
-    public static bool CanGameGenerateEggs(GameVersion game) => GamesWithEggs.Contains(game);
-
-    private static readonly HashSet<GameVersion> GamesWithEggs = new()
+    private static bool IsMixedGenderBreed(ushort species) => species switch
     {
-        GD, SI, C,
-        R, S, E, FR, LG,
-        D, P, Pt, HG, SS,
-        B, W, B2, W2,
-        X, Y, OR, AS,
-        SN, MN, US, UM,
-        SW, SH, BD, SP,
+        (int)NidoranF => true,
+        (int)NidoranM => true,
 
-        GS,
+        (int)Volbeat => true,
+        (int)Illumise => true,
+
+        (int)Indeedee => true, // male/female form
+
+        _ => false,
     };
 
     /// <summary>
-    /// Species that have special handling for breeding.
+    /// Species that are determined when the egg is received.
     /// </summary>
-    internal static readonly HashSet<int> MixedGenderBreeding = new()
+    public static bool IsGenderSpeciesDetermination(ushort species) => species switch
     {
-        (int)NidoranF,
-        (int)NidoranM,
+        (int)NidoranF => true,
+        (int)NidoranM => true,
 
-        (int)Volbeat,
-        (int)Illumise,
+        (int)Volbeat => true,
+        (int)Illumise => true,
 
-        (int)Indeedee, // male/female
+        _ => false,
     };
+
+    /// <summary>
+    /// Checks if the species <see cref="encryptionConstant"/> is valid for the <see cref="gender"/> if originated from Gen3/4 daycare eggs.
+    /// </summary>
+    /// <remarks>Only applies to species that satisfy <see cref="IsGenderSpeciesDetermination"/>.</remarks>
+    /// <param name="encryptionConstant">Encryption Constant</param>
+    /// <param name="gender">Gender</param>
+    /// <returns>True if valid</returns>
+    public static bool IsValidSpeciesBit34(uint encryptionConstant, byte gender) => gender != (encryptionConstant & 0x8000) >> 15; // 1 = Male, 0 = Female, valid if different from Gender value.
 
     /// <summary>
     /// Checks if the <see cref="species"/> can be born with inherited moves from the parents.
     /// </summary>
     /// <param name="species">Entity species ID</param>
-    /// <returns>True if can inherit moves, false if cannot.</returns>
-    internal static bool GetCanInheritMoves(int species)
+    /// <returns>True if it can inherit moves, false if cannot.</returns>
+    internal static bool GetCanInheritMoves(ushort species)
     {
-        if (Legal.FixedGenderFromBiGender.Contains(species)) // Nincada -> Shedinja loses gender causing 'false', edge case
+        if (EntityGender.IsFemaleOrDualGender(species))
             return true;
-        var pi = PKX.Personal[species];
-        if (!pi.Genderless && !pi.OnlyMale)
-            return true;
-        if (MixedGenderBreeding.Contains(species))
+        if (IsMixedGenderBreed(species))
             return true;
         return false;
     }
 
-    private static readonly HashSet<int> SplitBreed_3 = new()
-    {
-        // Incense
-        (int)Marill, (int)Azumarill,
-        (int)Wobbuffet,
-    };
-
     /// <summary>
     /// Species that can yield a different baby species when bred.
     /// </summary>
-    private static readonly HashSet<int> SplitBreed = new(SplitBreed_3)
+    public static bool IsSplitBreedNotBabySpecies(ushort species, byte generation)
     {
-        // Incense
-        (int)Chansey, (int)Blissey,
-        (int)MrMime, (int)MrRime,
-        (int)Snorlax,
-        (int)Sudowoodo,
-        (int)Mantine,
-        (int)Roselia, (int)Roserade,
-        (int)Chimecho,
-    };
+        if (generation == 3)
+            return IsSplitBreedNotBabySpecies3(species);
+        if (generation is 4 or 5 or 6 or 7 or 8)
+            return IsSplitBreedNotBabySpecies4(species);
+        // Gen9 does not have split-breed egg generation.
+        return false;
+    }
 
-    internal static ICollection<int> GetSplitBreedGeneration(int generation) => generation switch
+    /// <summary>
+    /// Checks if the species can yield a different baby species when bred via incense in Generation 3.
+    /// </summary>
+    /// <remarks>
+    /// This is a special case for Marill and Wobbuffet, which can be bred with incense to yield Azurill and Wynaut respectively.
+    /// </remarks>
+    public static bool IsSplitBreedNotBabySpecies3(ushort species) => species is (ushort)Marill or (ushort)Wobbuffet;
+
+    /// <summary>
+    /// Checks if the species can yield a different baby species when bred via incense in Generation 4-8.
+    /// </summary>
+    public static bool IsSplitBreedNotBabySpecies4(ushort species) => species switch
     {
-        3 => SplitBreed_3,
-        4 or 5 or 6 or 7 or 8 => SplitBreed,
-        _ => Array.Empty<int>(),
+        (int)Marill => true,
+        (int)Wobbuffet => true,
+
+        (int)Chansey => true,
+        (int)MrMime => true,
+        (int)Snorlax => true,
+        (int)Sudowoodo => true,
+        (int)Mantine => true,
+        (int)Roselia => true,
+        (int)Chimecho => true,
+        _ => false,
     };
 
     /// <summary>
@@ -94,117 +104,114 @@ public static class Breeding
     /// </summary>
     /// <remarks>Chained with the other 2 overloads for incremental checks with different parameters.</remarks>
     /// <param name="species">Current species</param>
-    public static bool CanHatchAsEgg(int species) => !NoHatchFromEgg.Contains(species);
+    public static bool CanHatchAsEgg(ushort species) => IsAbleToHatchFromEgg(species);
 
     /// <summary>
-    /// Checks if the <see cref="species"/>-<see cref="form"/> can exist as a hatched egg in the requested <see cref="generation"/>.
+    /// Checks if the <see cref="species"/>-<see cref="form"/> can exist as a hatched egg in the requested <see cref="context"/>.
     /// </summary>
     /// <remarks>Chained with the other 2 overloads for incremental checks with different parameters.</remarks>
     /// <param name="species">Current species</param>
     /// <param name="form">Current form</param>
-    /// <param name="generation">Generation of origin</param>
-    public static bool CanHatchAsEgg(int species, int form, int generation)
+    /// <param name="context">Generation of origin</param>
+    public static bool CanHatchAsEgg(ushort species, byte form, EntityContext context)
     {
         if (form == 0)
             return true;
 
-        if (FormInfo.IsTotemForm(species, form, generation))
+        if (FormInfo.IsTotemForm(species, form, context))
             return false;
 
-        if (FormInfo.IsLordForm(species, form, generation))
+        if (FormInfo.IsLordForm(species, form, context))
             return false;
 
         return IsBreedableForm(species, form);
     }
 
     /// <summary>
-    /// Some species can have forms that cannot exist as egg (event/special forms). Same idea as <see cref="FormInfo.IsTotemForm(int,int,int)"/>
+    /// Some species can have forms that cannot exist as egg (event/special forms). Same idea as <see cref="FormInfo.IsTotemForm(ushort,byte,EntityContext)"/>
     /// </summary>
-    /// <returns>True if can be bred.</returns>
-    private static bool IsBreedableForm(int species, int form) => species switch
+    /// <param name="species">Current species</param>
+    /// <param name="form">Current form, not 0.</param>
+    /// <returns>True if it can be bred.</returns>
+    private static bool IsBreedableForm(ushort species, byte form) => species switch
     {
         (int)Pikachu or (int)Eevee => false, // can't get these forms as egg
         (int)Pichu => false, // can't get Spiky Ear Pichu eggs
         (int)Floette when form == 5 => false, // can't get Eternal Flower from egg
+        (int)Greninja when form == 1 => false, // can't get Battle Bond Greninja from egg
         (int)Sinistea or (int)Polteageist => false, // can't get Antique eggs
+        (int)Poltchageist or (int)Sinistcha => false, // can't get Masterpiece eggs
         _ => true,
     };
 
     /// <summary>
-    /// Checks if the <see cref="species"/>-<see cref="form"/> can exist as a hatched egg in the requested <see cref="game"/>.
-    /// </summary>
-    /// <remarks>Chained with the other 2 overloads for incremental checks with different parameters.</remarks>
-    /// <param name="species">Current species</param>
-    /// <param name="form">Current form</param>
-    /// <param name="game">Game of origin</param>
-    public static bool CanHatchAsEgg(int species, int form, GameVersion game)
-    {
-        // Sanity check form for origin
-        var pt = GameData.GetPersonal(game);
-        if ((uint)species > pt.MaxSpeciesID)
-            return false;
-
-        var entry = pt.GetFormEntry(species, form);
-        if (!entry.IsPresentInGame)
-            return false;
-        return form < entry.FormCount || (species == (int)Rotom && form <= 5);
-    }
-
-    /// <summary>
     /// Species that cannot hatch from an egg.
     /// </summary>
-    private static readonly HashSet<int> NoHatchFromEgg = new()
+    private static bool IsAbleToHatchFromEgg(ushort species) => species switch
     {
         // Gen1
-        (int)Ditto,
-        (int)Articuno, (int)Zapdos, (int)Moltres,
-        (int)Mewtwo, (int)Mew,
+        (int)Ditto => false,
+        (int)Articuno or (int)Zapdos or (int)Moltres => false,
+        (int)Mewtwo or (int)Mew => false,
 
         // Gen2
-        (int)Unown,
-        (int)Raikou, (int)Entei, (int)Suicune,
-        (int)Lugia, (int)HoOh, (int)Celebi,
+        (int)Unown => false,
+        (int)Raikou or (int)Entei or (int)Suicune => false,
+        (int)Lugia or (int)HoOh or (int)Celebi => false,
 
         // Gen3
-        (int)Regirock, (int)Regice, (int)Registeel,
-        (int)Latias, (int)Latios,
-        (int)Kyogre, (int)Groudon, (int)Rayquaza,
-        (int)Jirachi, (int)Deoxys,
+        (int)Regirock or (int)Regice or (int)Registeel => false,
+        (int)Latias or (int)Latios => false,
+        (int)Kyogre or (int)Groudon or (int)Rayquaza => false,
+        (int)Jirachi or (int)Deoxys => false,
 
         // Gen4
-        (int)Uxie, (int)Mesprit, (int)Azelf,
-        (int)Dialga, (int)Palkia, (int)Heatran,
-        (int)Regigigas, (int)Giratina, (int)Cresselia,
-        (int)Manaphy, (int)Darkrai, (int)Shaymin, (int)Arceus,
+        (int)Uxie or (int)Mesprit or (int)Azelf => false,
+        (int)Dialga or (int)Palkia or (int)Heatran => false,
+        (int)Regigigas or (int)Giratina or (int)Cresselia => false,
+        (int)Manaphy or (int)Darkrai or (int)Shaymin or (int)Arceus => false,
 
         // Gen5
-        (int)Victini,
-        (int)Cobalion, (int)Terrakion, (int)Virizion,
-        (int)Tornadus, (int)Thundurus,
-        (int)Reshiram, (int)Zekrom,
-        (int)Landorus, (int)Kyurem,
-        (int)Keldeo, (int)Meloetta, (int)Genesect,
+        (int)Victini => false,
+        (int)Cobalion or (int)Terrakion or (int)Virizion => false,
+        (int)Tornadus or (int)Thundurus => false,
+        (int)Reshiram or (int)Zekrom => false,
+        (int)Landorus or (int)Kyurem => false,
+        (int)Keldeo or (int)Meloetta or (int)Genesect => false,
 
         // Gen6
-        (int)Xerneas, (int)Yveltal, (int)Zygarde,
-        (int)Diancie, (int)Hoopa, (int)Volcanion,
+        (int)Xerneas or (int)Yveltal or (int)Zygarde => false,
+        (int)Diancie or (int)Hoopa or (int)Volcanion => false,
 
         // Gen7
-        (int)TypeNull, (int)Silvally,
-        (int)TapuKoko, (int)TapuLele, (int)TapuBulu, (int)TapuFini,
-        (int)Cosmog, (int)Cosmoem, (int)Solgaleo, (int)Lunala,
-        (int)Nihilego, (int)Buzzwole, (int)Pheromosa, (int)Xurkitree, (int)Celesteela, (int)Kartana, (int)Guzzlord, (int)Necrozma,
-        (int)Magearna, (int)Marshadow,
-        (int)Poipole, (int)Naganadel, (int)Stakataka, (int)Blacephalon, (int)Zeraora,
+        (int)TypeNull or (int)Silvally => false,
+        (int)TapuKoko or (int)TapuLele or (int)TapuBulu or (int)TapuFini => false,
+        (int)Cosmog or (int)Cosmoem or (int)Solgaleo or (int)Lunala => false,
+        (int)Nihilego or (int)Buzzwole or (int)Pheromosa or (int)Xurkitree or (int)Celesteela or (int)Kartana or (int)Guzzlord or (int)Necrozma => false,
+        (int)Magearna or (int)Marshadow => false,
+        (int)Poipole or (int)Naganadel or (int)Stakataka or (int)Blacephalon or (int)Zeraora => false,
 
-        (int)Meltan, (int)Melmetal,
+        (int)Meltan or (int)Melmetal => false,
 
         // Gen8
-        (int)Dracozolt, (int)Arctozolt, (int)Dracovish, (int)Arctovish,
-        (int)Zacian, (int)Zamazenta, (int)Eternatus,
-        (int)Kubfu, (int)Urshifu, (int)Zarude,
-        (int)Regieleki, (int)Regidrago,
-        (int)Glastrier, (int)Spectrier, (int)Calyrex,
-        (int)Enamorus,
+        (int)Dracozolt or (int)Arctozolt or (int)Dracovish or (int)Arctovish => false,
+        (int)Zacian or (int)Zamazenta or (int)Eternatus => false,
+        (int)Kubfu or (int)Urshifu or (int)Zarude => false,
+        (int)Regieleki or (int)Regidrago => false,
+        (int)Glastrier or (int)Spectrier or (int)Calyrex => false,
+        (int)Enamorus => false,
+
+        // Gen9
+        (int)GreatTusk or (int)ScreamTail or (int)BruteBonnet or (int)FlutterMane or (int)SlitherWing or (int)SandyShocks => false,
+        (int)IronTreads or (int)IronBundle or (int)IronHands or (int)IronJugulis or (int)IronMoth or (int)IronThorns => false,
+        (int)Gimmighoul or (int)Gholdengo => false,
+        (int)WoChien or (int)ChienPao or (int)TingLu or (int)ChiYu => false,
+        (int)RoaringMoon or (int)IronValiant => false,
+        (int)Koraidon or (int)Miraidon => false,
+        (int)WalkingWake or (int)IronLeaves => false,
+        (int)Okidogi or (int)Munkidori or (int)Fezandipiti or (int)Ogerpon => false,
+        (int)GougingFire or (int)RagingBolt or (int)IronBoulder or (int)IronCrown or (int)Terapagos or (int)Pecharunt => false,
+
+        _ => true,
     };
 }

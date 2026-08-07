@@ -1,18 +1,20 @@
-﻿using System;
+using System;
 using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace PKHeX.Core;
 
-public sealed class Hall4
+/// <summary>
+/// Extra-data block for Hall of Fame records.
+/// </summary>
+/// <param name="Raw">Chunk of memory storing the structure.</param>
+public sealed class Hall4(Memory<byte> Raw)
 {
     private const int SIZE = 0xBA0;
     private const int SIZE_FOOTER = 0x10;
-    private const int SIZE_BLOCK = 0x1000;
+    public const int SIZE_USED = SIZE + SIZE_FOOTER;
+  //public const int SIZE_BLOCK = 0x1000;
 
-    private readonly byte[] Raw;
-    private readonly int Offset;
-    private Span<byte> Data => Raw.AsSpan(Offset, SIZE_BLOCK);
-    public Hall4(byte[] data, int offset) => (Raw, Offset) = (data, offset);
+    private Span<byte> Data => Raw.Span[..SIZE_USED];
 
     private const int SIZE_ARRAY = 0x3DE; // 493+(egg, bad-egg) species
 
@@ -26,24 +28,22 @@ public sealed class Hall4
 
     public uint Key { get => ReadUInt32LittleEndian(Data); set => WriteUInt32LittleEndian(Data, value); }
 
-    public ushort GetCount(int battleType, int species)
+    public ushort GetCount(int battleType, ushort species)
     {
         var offset = GetRecordOffset(battleType, species);
         return ReadUInt16LittleEndian(Data[offset..]);
     }
 
-    public void SetCount(int battleType, int species, ushort value)
+    public void SetCount(int battleType, ushort species, ushort value)
     {
         var offset = GetRecordOffset(battleType, species);
         WriteUInt16LittleEndian(Data[offset..], value);
     }
 
-    private static int GetRecordOffset(int battleType, int species)
+    private static int GetRecordOffset(int battleType, ushort species)
     {
-        if ((uint)species > Legal.MaxSpeciesID_4)
-            throw new ArgumentOutOfRangeException(nameof(species));
-        if ((uint)battleType > 2)
-            throw new ArgumentOutOfRangeException(nameof(battleType));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(species, Legal.MaxSpeciesID_4);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual<uint>((uint)battleType, 3);
 
         return sizeof(uint) + (battleType * SIZE_ARRAY) + (species * sizeof(ushort));
     }

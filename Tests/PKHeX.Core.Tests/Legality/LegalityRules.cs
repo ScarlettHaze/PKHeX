@@ -1,8 +1,7 @@
-﻿using FluentAssertions;
-using PKHeX.Core;
+using FluentAssertions;
 using Xunit;
 
-namespace PKHeX.Tests.Legality;
+namespace PKHeX.Core.Tests.Legality;
 
 public class LegalityRules
 {
@@ -10,7 +9,7 @@ public class LegalityRules
     [InlineData(GameVersion.B)]
     public void HasOriginalMetLocation5(GameVersion g)
     {
-        var pk5 = new PK5 {Version = (int) g};
+        var pk5 = new PK5 { Version = g };
         pk5.HasOriginalMetLocation.Should().BeTrue();
     }
 
@@ -19,7 +18,7 @@ public class LegalityRules
     [InlineData(GameVersion.X)]
     public void HasOriginalMetLocation6(GameVersion g)
     {
-        var pk5 = new PK6 { Version = (int)g };
+        var pk5 = new PK6 { Version = g };
         pk5.HasOriginalMetLocation.Should().BeTrue();
     }
 
@@ -29,7 +28,7 @@ public class LegalityRules
     [InlineData(GameVersion.SN)]
     public void HasOriginalMetLocation7(GameVersion g)
     {
-        var pk5 = new PK7 { Version = (int)g };
+        var pk5 = new PK7 { Version = g };
         pk5.HasOriginalMetLocation.Should().BeTrue();
     }
 }

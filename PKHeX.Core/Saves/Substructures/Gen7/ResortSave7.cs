@@ -1,38 +1,37 @@
-﻿using System;
+using System;
+using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace PKHeX.Core;
 
-public sealed class ResortSave7 : SaveBlock<SAV7>
+public sealed class ResortSave7(SAV7 sav, Memory<byte> raw) : SaveBlock<SAV7>(sav, raw)
 {
-    public ResortSave7(SAV7 sav, int offset) : base(sav) => Offset = offset;
+    private const int SIZE_7STORED = PokeCrypto.SIZE_6STORED;
+    private const int SIZE_7STORED_R = SIZE_7STORED + 4; // 3 bytes of extra metadata
 
-    public const int ResortCount = 93;
-    public int GetResortSlotOffset(int slot) => Offset + 0x16 + (slot * PokeCrypto.SIZE_6STORED);
+    // tinymt64
+    public UInt128 State { get => ReadUInt128LittleEndian(Data); set => WriteUInt128LittleEndian(Data, value); }
 
-    public PK7[] ResortPKM
+    // 6 bytes ???
+
+    public const int ResortCount1 = 18;
+    public const int ResortCount2 = 3;
+    public const int ResortCount3 = ResortCount1; // 18
+    public const int ResortCount4 = ResortCount1; // 18
+    public const int ResortCount5 = ResortCount1; // 18
+    public const int ResortCount6 = ResortCount1; // 18
+    public const int ResortCount = ResortCount1 + ResortCount2 + ResortCount3 + ResortCount4 + ResortCount5 + ResortCount6; // 93
+    // End of Resort Slots: 0x55D2
+
+    public static int GetResortSlotOffset(int index)
     {
-        get
-        {
-            PK7[] data = new PK7[ResortCount];
-            for (int i = 0; i < data.Length; i++)
-            {
-                var bytes = SAV.GetData(GetResortSlotOffset(i), PokeCrypto.SIZE_6STORED);
-                data[i] = new PK7(bytes);
-            }
-            return data;
-        }
-        set
-        {
-            if (value.Length != ResortCount)
-                throw new ArgumentException(nameof(ResortCount));
-
-            for (int i = 0; i < value.Length; i++)
-                SAV.SetSlotFormatStored(value[i], Data, GetResortSlotOffset(i));
-        }
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)ResortCount);
+        return 0x16 + (index * SIZE_7STORED_R);
     }
 
+    public Memory<byte> this[int index] => Raw.Slice(GetResortSlotOffset(index), SIZE_7STORED);
+
     public const int BEANS_MAX = 15;
-    public Span<byte> GetBeans() => Data.AsSpan(Offset + 0x564C, BEANS_MAX);
+    public Span<byte> GetBeans() => Data.Slice(0x564C, BEANS_MAX);
     public void ClearBeans() => GetBeans().Clear();
     public void FillBeans(byte value = 255) => GetBeans().Fill(value);
 
@@ -52,11 +51,11 @@ public sealed class ResortSave7 : SaveBlock<SAV7>
     /// </summary>
     public static string[] GetBeanIndexNames()
     {
-        var colors = Enum.GetNames(typeof(BeanColor7));
+        var colors = Enum.GetNames<BeanColor7>();
         return GetBeanIndexNames(colors);
     }
 
-    private static string[] GetBeanIndexNames(string[] colors)
+    private static string[] GetBeanIndexNames(ReadOnlySpan<string> colors)
     {
         // 7 regular, 7 patterned, one rainbow
         var beans = new string[(colors.Length * 2) + 1];

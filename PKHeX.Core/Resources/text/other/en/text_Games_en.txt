@@ -1,4 +1,4 @@
-﻿
+
 Sapphire
 Ruby
 Emerald
@@ -14,7 +14,7 @@ Platinum
 
 
 Colosseum/XD
-
+Battle Revolution
 
 
 
@@ -48,3 +48,7 @@ Shield
 Legends: Arceus
 Brilliant Diamond
 Shining Pearl
+Scarlet
+Violet
+Legends: Z-A
+Champions

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -18,15 +18,15 @@ public partial class SAV_PokedexLA : Form
 
     private readonly Controls.PokedexResearchTask8aPanel[] TaskControls;
 
-    private readonly int[] SpeciesToDex;
-    private readonly int[] DexToSpecies;
+    private readonly ushort[] SpeciesToDex;
+    private readonly ushort[] DexToSpecies;
 
     private int lastIndex = -1;
     private int lastForm = -1;
     private bool Editing;
     private readonly bool CanSave;
 
-    private readonly IList<ComboItem> DisplayedForms;
+    private readonly List<ComboItem> DisplayedForms;
 
     private readonly string[] TaskDescriptions = Util.GetStringList("tasks8a", Main.CurrentLanguage);
     private readonly string[] SpeciesQuests = Util.GetStringList("species_tasks8a", Main.CurrentLanguage);
@@ -39,12 +39,12 @@ public partial class SAV_PokedexLA : Form
         SAV = (SAV8LA)(Origin = sav).Clone();
         Dex = SAV.Blocks.PokedexSave;
         var speciesNames = GameInfo.Strings.Species;
-        CHK_SeenWild = new[] { CHK_S0, CHK_S1, CHK_S2, CHK_S3, CHK_S4, CHK_S5, CHK_S6, CHK_S7 };
-        CHK_Obtained = new[] { CHK_O0, CHK_O1, CHK_O2, CHK_O3, CHK_O4, CHK_O5, CHK_O6, CHK_O7 };
-        CHK_CaughtWild = new[] { CHK_C0, CHK_C1, CHK_C2, CHK_C3, CHK_C4, CHK_C5, CHK_C6, CHK_C7 };
+        CHK_SeenWild = [CHK_S0, CHK_S1, CHK_S2, CHK_S3, CHK_S4, CHK_S5, CHK_S6, CHK_S7];
+        CHK_Obtained = [CHK_O0, CHK_O1, CHK_O2, CHK_O3, CHK_O4, CHK_O5, CHK_O6, CHK_O7];
+        CHK_CaughtWild = [CHK_C0, CHK_C1, CHK_C2, CHK_C3, CHK_C4, CHK_C5, CHK_C6, CHK_C7];
 
-        TaskControls = new []
-        {
+        TaskControls =
+        [
             PRT_1,
             PRT_2,
             PRT_3,
@@ -55,7 +55,7 @@ public partial class SAV_PokedexLA : Form
             PRT_8,
             PRT_9,
             PRT_10,
-        };
+        ];
 
         foreach (var tc in TaskControls)
         {
@@ -63,10 +63,10 @@ public partial class SAV_PokedexLA : Form
             tc.SetStrings(TaskDescriptions, SpeciesQuests, TimeTaskDescriptions);
         }
 
-        SpeciesToDex = new int[SAV.Personal.MaxSpeciesID + 1];
+        SpeciesToDex = new ushort[SAV.Personal.MaxSpeciesID + 1];
 
         var maxDex = 0;
-        for (var s = 1; s <= SAV.Personal.MaxSpeciesID; s++)
+        for (ushort s = 1; s <= SAV.Personal.MaxSpeciesID; s++)
         {
             var hisuiDex = PokedexSave8a.GetDexIndex(PokedexType8a.Hisui, s);
             if (hisuiDex == 0)
@@ -77,8 +77,8 @@ public partial class SAV_PokedexLA : Form
                 maxDex = hisuiDex;
         }
 
-        DexToSpecies = new int[maxDex + 1];
-        for (var s = 1; s <= SAV.Personal.MaxSpeciesID; s++)
+        DexToSpecies = new ushort[maxDex + 1];
+        for (ushort s = 1; s <= SAV.Personal.MaxSpeciesID; s++)
         {
             if (SpeciesToDex[s] != 0)
                 DexToSpecies[SpeciesToDex[s]] = s;
@@ -91,19 +91,18 @@ public partial class SAV_PokedexLA : Form
 
         // Fill List
         CB_Species.InitializeBinding();
-        var species = GameInfo.FilteredSources.Species.Where(z => PokedexSave8a.GetDexIndex(PokedexType8a.Hisui, z.Value) != 0).ToArray();
-        CB_Species.DataSource = new BindingSource(species, null);
+        var species = GameInfo.FilteredSources.Species.Where(z => PokedexSave8a.GetDexIndex(PokedexType8a.Hisui, (ushort)z.Value) != 0).ToArray();
+        CB_Species.DataSource = new BindingSource(species, string.Empty);
 
         CB_DisplayForm.InitializeBinding();
-        DisplayedForms = new List<ComboItem> { new(GameInfo.Strings.types[0], 0) };
-        CB_DisplayForm.DataSource = new BindingSource(DisplayedForms, null);
+        DisplayedForms = [new(GameInfo.Strings.types[0], 0)];
+        CB_DisplayForm.DataSource = new BindingSource(DisplayedForms, string.Empty);
 
         for (var d = 1; d < DexToSpecies.Length; d++)
             LB_Species.Items.Add($"{d:000} - {speciesNames[DexToSpecies[d]]}");
 
         Editing = false;
         LB_Species.SelectedIndex = 0;
-        CB_Species.KeyDown += WinFormsUtil.RemoveDropCB;
         CanSave = true;
     }
 
@@ -157,18 +156,18 @@ public partial class SAV_PokedexLA : Form
 
         DisplayedForms.Clear();
         DisplayedForms.Add(new ComboItem(GameInfo.Strings.types[0], 0));
-        CB_DisplayForm.DataSource = new BindingSource(DisplayedForms, null);
+        CB_DisplayForm.DataSource = new BindingSource(DisplayedForms, string.Empty);
 
         lastForm = 0;
 
-        int species = DexToSpecies[index + 1];
+        ushort species = DexToSpecies[index + 1];
         bool hasForms = FormInfo.HasFormSelection(SAV.Personal[species], species, 8);
         LB_Forms.Enabled = CB_DisplayForm.Enabled = hasForms;
         if (!hasForms)
             return false;
 
-        var ds = FormConverter.GetFormList(species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Generation).ToList();
-        if (ds.Count == 1 && string.IsNullOrEmpty(ds[0]))
+        var ds = FormConverter.GetFormList(species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Context);
+        if (ds.Length == 1 && string.IsNullOrEmpty(ds[0]))
         {
             // empty
             LB_Forms.Enabled = CB_DisplayForm.Enabled = false;
@@ -179,7 +178,7 @@ public partial class SAV_PokedexLA : Form
         var formCount = SAV.Personal[species].FormCount;
         var sanitized = new List<string>();
         DisplayedForms.Clear();
-        for (var form = 0; form < formCount; form++)
+        for (byte form = 0; form < formCount; form++)
         {
             if (!Dex.HasFormStorage(species, form) || Dex.IsBlacklisted(species, form))
                 continue;
@@ -188,7 +187,7 @@ public partial class SAV_PokedexLA : Form
             DisplayedForms.Add(new ComboItem(ds[form], form));
         }
 
-        CB_DisplayForm.DataSource = new BindingSource(DisplayedForms, null);
+        CB_DisplayForm.DataSource = new BindingSource(DisplayedForms, string.Empty);
         LB_Forms.DataSource = sanitized;
         LB_Forms.SelectedIndex = 0;
 
@@ -216,7 +215,7 @@ public partial class SAV_PokedexLA : Form
     private void GetEntry(int index, int formIndex)
     {
         var species = DexToSpecies[index + 1];
-        var form = DisplayedForms[formIndex].Value;
+        var form = (byte)DisplayedForms[formIndex].Value;
 
         // Flags
         var seenWild = Dex.GetPokeSeenInWildFlags(species, form);
@@ -235,9 +234,13 @@ public partial class SAV_PokedexLA : Form
         {
             var selectedForm = Dex.GetSelectedForm(species);
             CB_DisplayForm.SelectedIndex = 0;
-            for (var i = 0; i < CB_DisplayForm.Items.Count; ++i)
+            var items = CB_DisplayForm.Items;
+            for (var i = 0; i < items.Count; ++i)
             {
-                if (((ComboItem)CB_DisplayForm.Items[i]).Value != selectedForm)
+                var item = items[i];
+                if (item is not ComboItem cb)
+                    throw new Exception("Invalid item type");
+                if (cb.Value != selectedForm)
                     continue;
 
                 CB_DisplayForm.SelectedIndex = i;
@@ -291,7 +294,7 @@ public partial class SAV_PokedexLA : Form
     private bool IsEntryEmpty(int index, int formIndex)
     {
         var species = DexToSpecies[index + 1];
-        var form = DisplayedForms[formIndex].Value;
+        byte form = (byte)DisplayedForms[formIndex].Value;
 
         // Any seen/obtain flags
         for (var i = 0; i < CHK_SeenWild.Length; i++)
@@ -353,7 +356,7 @@ public partial class SAV_PokedexLA : Form
             return;
 
         var species = DexToSpecies[index + 1];
-        var form = DisplayedForms[formIndex].Value;
+        var form = (byte)DisplayedForms[formIndex].Value;
 
         if (!empty)
             Dex.SetPokeHasBeenUpdated(species);
@@ -377,7 +380,7 @@ public partial class SAV_PokedexLA : Form
         // Display
         var dispForm = form;
         if (CB_DisplayForm.Enabled)
-            dispForm = WinFormsUtil.GetIndex(CB_DisplayForm);
+            dispForm = (byte)WinFormsUtil.GetIndex(CB_DisplayForm);
 
         Dex.SetSelectedGenderForm(species, dispForm, CHK_G.Checked, CHK_S.Checked, CHK_A.Checked);
 
@@ -467,7 +470,7 @@ public partial class SAV_PokedexLA : Form
         GetEntry(lastIndex, lastForm);
         ResumeLayout();
         Editing = false;
-        System.Media.SystemSounds.Asterisk.Play();
+        WinFormsUtil.Asterisk();
     }
 
     private void B_AdvancedResearch_Click(object sender, EventArgs e)

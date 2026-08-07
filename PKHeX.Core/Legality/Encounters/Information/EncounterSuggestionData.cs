@@ -1,15 +1,22 @@
-﻿using System;
-using System.Collections.Generic;
-
 namespace PKHeX.Core;
 
-public sealed class EncounterSuggestionData : ISpeciesForm, IRelearn
+/// <summary>
+/// Wrapper result to store suggestion data related to encounters.
+/// </summary>
+public sealed class EncounterSuggestionData : ISpeciesForm, IRelearn, ILevelRange
 {
-    private readonly IEncounterable? Encounter;
+    public readonly IEncounterable? Encounter;
 
-    public IReadOnlyList<int> Relearn => Encounter is IRelearn r ? r.Relearn : Array.Empty<int>();
+    public ushort Species { get; }
+    public byte Form { get; }
+    public ushort Location { get; }
 
-    public EncounterSuggestionData(PKM pk, IEncounterable enc, int met)
+    public byte LevelMin { get; }
+    public byte LevelMax { get; }
+
+    public Moveset Relearn => Encounter is IRelearn r ? r.Relearn : default;
+
+    public EncounterSuggestionData(PKM pk, IEncounterable enc, ushort met)
     {
         Encounter = enc;
         Species = pk.Species;
@@ -20,7 +27,7 @@ public sealed class EncounterSuggestionData : ISpeciesForm, IRelearn
         LevelMax = enc.LevelMax;
     }
 
-    public EncounterSuggestionData(PKM pk, int met, byte lvl)
+    public EncounterSuggestionData(PKM pk, ushort met, byte lvl)
     {
         Species = pk.Species;
         Form = pk.Form;
@@ -30,14 +37,14 @@ public sealed class EncounterSuggestionData : ISpeciesForm, IRelearn
         LevelMax = lvl;
     }
 
-    public int Species { get; }
-    public int Form { get; }
-    public int Location { get; }
-
-    public byte LevelMin { get; }
-    public byte LevelMax { get; }
-
-    public int GetSuggestedMetLevel(PKM pk) => EncounterSuggestion.GetSuggestedMetLevel(pk, LevelMin);
+    public byte GetSuggestedMetLevel(PKM pk) => EncounterSuggestion.GetSuggestedMetLevel(pk, LevelMin);
     public GroundTileType GetSuggestedGroundTile() => Encounter is IGroundTypeTile t ? t.GroundTile.GetIndex() : 0;
-    public bool HasGroundTile(int format) => Encounter is IGroundTypeTile t && t.HasGroundTile(format);
+    public bool HasGroundTile(byte format) => Encounter is IGroundTypeTile t && t.HasGroundTile(format);
+
+    public int GetSuggestedMetTimeOfDay()
+    {
+        if (Encounter is IEncounterTime time)
+            return time.GetRandomTime();
+        return 0;
+    }
 }

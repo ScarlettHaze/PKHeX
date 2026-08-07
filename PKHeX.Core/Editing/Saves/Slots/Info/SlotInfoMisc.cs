@@ -1,35 +1,29 @@
+using System;
+
 namespace PKHeX.Core;
 
 /// <summary>
 /// Miscellaneous origination <see cref="ISlotInfo"/>
 /// </summary>
-public sealed record SlotInfoMisc(byte[] Data, int Slot, int Offset, bool PartyFormat = false) : ISlotInfo
+public sealed record SlotInfoMisc(Memory<byte> Data, int Slot, bool PartyFormat = false, bool Mutable = false, bool HideLegality = false) : ISlotInfo
 {
-    public SlotOrigin Origin => PartyFormat ? SlotOrigin.Party : SlotOrigin.Box;
-    public bool CanWriteTo(SaveFile sav) => false;
-    public WriteBlockedMessage CanWriteTo(SaveFile sav, PKM pk) => WriteBlockedMessage.InvalidDestination;
-    public StorageSlotType Type { get; init; }
+    public required StorageSlotType Type { get; init; }
+    public bool CanWriteTo(SaveFile sav) => Mutable;
+    public WriteBlockedMessage CanWriteTo(SaveFile sav, PKM pk) => Mutable ? WriteBlockedMessage.None : WriteBlockedMessage.InvalidDestination;
 
-    public SlotInfoMisc(SaveFile sav, int slot, int offset, bool party = false) : this(GetBuffer(sav), slot, offset, party) { }
-
-    private static byte[] GetBuffer(SaveFile sav) => sav switch
+    public bool WriteTo(SaveFile sav, PKM pk, EntityImportSettings settings = default)
     {
-        SAV4 s => s.General,
-        SAV3 s3 => s3.Large,
-        _ => sav.Data,
-    };
-
-    public bool WriteTo(SaveFile sav, PKM pk, PKMImportSetting setting = PKMImportSetting.UseDefault)
-    {
+        var span = Data.Span;
         if (PartyFormat)
-            sav.SetSlotFormatParty(pk, Data, Offset, setting, setting);
+            sav.SetSlotFormatParty(pk, span, settings);
         else
-            sav.SetSlotFormatStored(pk, Data, Offset, setting, setting);
+            sav.SetSlotFormatStored(pk, span, settings);
         return true;
     }
 
     public PKM Read(SaveFile sav)
     {
-        return PartyFormat ? sav.GetPartySlot(Data, Offset) : sav.GetStoredSlot(Data, Offset);
+        var span = Data.Span;
+        return PartyFormat ? sav.GetPartySlot(span) : sav.GetStoredSlot(span);
     }
 }

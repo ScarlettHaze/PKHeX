@@ -14,29 +14,33 @@ public partial class SAV_SimpleTrainer : Form
     {
         InitializeComponent();
         WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
+        TB_OTName.DisplayContext = sav.Context;
         SAV = (Origin = sav).Clone();
         Loading = true;
 
-        cba = new[] {CHK_1, CHK_2, CHK_3, CHK_4, CHK_5, CHK_6, CHK_7, CHK_8};
-        TB_OTName.MaxLength = SAV.OTLength;
-        B_MaxCash.Click += (sender, e) => MT_Money.Text = SAV.MaxMoney.ToString();
-        B_MaxCoins.Click += (sender, e) => MT_Coins.Text = SAV.MaxCoins.ToString();
+        cba = [CHK_1, CHK_2, CHK_3, CHK_4, CHK_5, CHK_6, CHK_7, CHK_8];
+        TB_OTName.MaxLength = SAV.MaxStringLengthTrainer;
+        B_MaxCash.Click += (_, _) => MT_Money.Text = SAV.MaxMoney.ToString();
+        B_MaxCoins.Click += (_, _) => MT_Coins.Text = SAV.MaxCoins.ToString();
         MT_Money.Mask = "".PadRight((int)Math.Floor(Math.Log10(SAV.MaxMoney) + 1), '0');
         MT_Coins.Mask = "".PadRight((int)Math.Floor(Math.Log10(SAV.MaxCoins) + 1), '0');
 
         CB_Gender.Items.Clear();
-        CB_Gender.Items.AddRange(Main.GenderSymbols.Take(2).ToArray()); // m/f depending on unicode selection
+        CB_Gender.Items.AddRange([.. Main.GenderSymbols.Take(2)]); // m/f depending on unicode selection
 
         L_SID.Visible = MT_SID.Visible = SAV.Generation > 2;
         L_Coins.Visible = B_MaxCoins.Visible = MT_Coins.Visible = SAV.Generation < 3;
         CB_Gender.Visible = SAV.Generation > 1;
+        L_Country.Visible = L_Region.Visible = CB_Country.Visible = CB_Region.Visible = SAV.Generation > 3;
+        CB_Country.InitializeBinding();
+        CB_Region.InitializeBinding();
 
         L_PikaFriend.Visible = MT_PikaFriend.Visible = L_PikaBeach.Visible = MT_PikaBeach.Visible = SAV.Generation == 1;
 
         TB_OTName.Text = SAV.OT;
         CB_Gender.SelectedIndex = SAV.Gender;
-        MT_TID.Text = SAV.TID.ToString("00000");
-        MT_SID.Text = SAV.SID.ToString("00000");
+        MT_TID.Text = SAV.TID16.ToString("00000");
+        MT_SID.Text = SAV.SID16.ToString("00000");
         MT_Money.Text = SAV.Money.ToString();
         MT_Hours.Text = SAV.PlayedHours.ToString();
         MT_Minutes.Text = SAV.PlayedMinutes.ToString();
@@ -53,9 +57,9 @@ public partial class SAV_SimpleTrainer : Form
             CAL_AdventureStartTime.Visible = CAL_HoFTime.Visible = false;
             GB_Map.Visible = false;
             GB_Options.Visible = true;
-            CB_BattleStyle.Items.AddRange(new[] { "Switch", "Set" });
-            CB_SoundType.Items.AddRange(new[] { "Mono", "Stereo", "Left", "Right" });
-            CB_TextSpeed.Items.AddRange(new[] { "0 (Instant)", "1 (Fast)", "2", "3 (Normal)", "4", "5 (Slow)", "6", "7" });
+            CB_BattleStyle.Items.AddRange("Shift", "Set");
+            CB_SoundType.Items.AddRange("Mono", "Stereo", "Left", "Right");
+            CB_TextSpeed.Items.AddRange("0 (Instant)", "1 (Fast)", "2", "3 (Normal)", "4", "5 (Slow)", "6", "7");
 
             CHK_BattleEffects.Checked = sav1.BattleEffects;
             CB_BattleStyle.SelectedIndex = sav1.BattleStyleSwitch ? 0 : 1;
@@ -70,6 +74,8 @@ public partial class SAV_SimpleTrainer : Form
                 L_PikaBeach.Visible = MT_PikaBeach.Visible = false;
                 CB_SoundType.Visible = LBL_SoundType.Visible = false;
             }
+
+            TB_OTName.Click += (_, _) => ClickOT(sav1.OriginalTrainerTrash, TB_OTName);
         }
 
         if (SAV is SAV2 sav2)
@@ -81,26 +87,41 @@ public partial class SAV_SimpleTrainer : Form
             CAL_AdventureStartTime.Visible = CAL_HoFTime.Visible = false;
             GB_Map.Visible = false;
             GB_Options.Visible = true;
-            CB_BattleStyle.Items.AddRange(new[] { "Switch", "Set" });
-            CB_SoundType.Items.AddRange(new[] { "Mono", "Stereo" });
-            CB_TextSpeed.Items.AddRange(new[] { "0 (Instant)", "1 (Fast)", "2", "3 (Normal)", "4", "5 (Slow)", "6", "7" });
+            CB_BattleStyle.Items.AddRange("Shift", "Set");
+            CB_SoundType.Items.AddRange("Mono", "Stereo");
+            CB_TextSpeed.Items.AddRange("0 (Instant)", "1 (Fast)", "2", "3 (Normal)", "4", "5 (Slow)", "6", "7");
 
             CHK_BattleEffects.Checked = sav2.BattleEffects;
             CB_BattleStyle.SelectedIndex = sav2.BattleStyleSwitch ? 0 : 1;
             CB_SoundType.SelectedIndex = sav2.Sound > 0 ? 1 : 0;
             CB_TextSpeed.SelectedIndex = sav2.TextSpeed;
             badgeval = sav2.Badges;
-            cba = new[] { CHK_1, CHK_2, CHK_3, CHK_4, CHK_6, CHK_5, CHK_7, CHK_8, CHK_H1, CHK_H2, CHK_H3, CHK_H4, CHK_H5, CHK_H6, CHK_H7, CHK_H8 };
+            cba = [CHK_1, CHK_2, CHK_3, CHK_4, CHK_6, CHK_5, CHK_7, CHK_8, CHK_H1, CHK_H2, CHK_H3, CHK_H4, CHK_H5, CHK_H6, CHK_H7, CHK_H8];
+
+            TB_OTName.Click += (_, _) => ClickOT(sav2.OriginalTrainerTrash, TB_OTName);
         }
 
         if (SAV is SAV3 sav3)
         {
+            var small = sav3.SmallBlock;
             GB_Map.Visible = false;
             badgeval = sav3.Badges;
 
             L_Started.Visible = L_Fame.Visible = false;
             CAL_AdventureStartDate.Visible = CAL_HoFDate.Visible = false;
             CAL_AdventureStartTime.Visible = CAL_HoFTime.Visible = false;
+
+            GB_Options.Visible = true;
+            CB_BattleStyle.Items.AddRange("Shift", "Set");
+            CB_SoundType.Items.AddRange("Mono", "Stereo");
+            CB_TextSpeed.Items.AddRange("0 (Slow)", "1 (Mid)", "2 (Fast)", "3", "4", "5", "6", "7");
+
+            CB_TextSpeed.SelectedIndex = small.TextSpeed;
+            CB_BattleStyle.SelectedIndex = small.OptionBattleStyle ? 1 : 0;
+            CB_SoundType.SelectedIndex = small.OptionSound ? 1 : 0;
+            CHK_BattleEffects.Checked = !small.OptionBattleScene;
+
+            TB_OTName.Click += (_, _) => ClickOT(small.OriginalTrainerTrash, TB_OTName);
         }
         if (SAV is SAV3Colosseum or SAV3XD)
         {
@@ -110,6 +131,11 @@ public partial class SAV_SimpleTrainer : Form
             CAL_AdventureStartDate.Visible = CAL_HoFDate.Visible = false;
             CAL_AdventureStartTime.Visible = CAL_HoFTime.Visible = false;
             GB_Adventure.Visible = false;
+
+            if (SAV is SAV3Colosseum colo)
+                TB_OTName.Click += (_, _) => ClickOT(colo.OriginalTrainerTrash, TB_OTName);
+            else if (SAV is SAV3XD xd)
+                TB_OTName.Click += (_, _) => ClickOT(xd.OriginalTrainerTrash, TB_OTName);
             return;
         }
 
@@ -124,12 +150,18 @@ public partial class SAV_SimpleTrainer : Form
             if (sav4 is SAV4HGSS hgss)
             {
                 badgeval |= hgss.Badges16 << 8;
-                cba = cba.Concat(new[] { CHK_H1, CHK_H2, CHK_H3, CHK_H4, CHK_H5, CHK_H6, CHK_H7, CHK_H8 }).ToArray();
+                cba = [..cba, CHK_H1, CHK_H2, CHK_H3, CHK_H4, CHK_H5, CHK_H6, CHK_H7, CHK_H8];
             }
+
+            Main.SetCountrySubRegion(CB_Country, "gen4_countries");
+            CB_Country.SelectedValue = sav4.Country;
+            CB_Region.SelectedValue = sav4.Region;
+
+            TB_OTName.Click += (_, _) => ClickOT(sav4.OriginalTrainerTrash, TB_OTName);
         }
         else if (SAV is SAV5 s)
         {
-            foreach (var control in new Control[] {L_Coins, B_MaxCoins, MT_Coins})
+            foreach (var control in new Control[] { L_Coins, B_MaxCoins, MT_Coins })
             {
                 var pos = control.Location;
                 GB_Badges.Controls.Add(control);
@@ -139,12 +171,18 @@ public partial class SAV_SimpleTrainer : Form
             L_Coins.Text = "BP"; // no translation boo
             MT_Coins.Text = s.BattleSubway.BP.ToString();
 
-            var pd = s.PlayerData;
+            var pd = s.PlayerPosition;
             NUD_M.Value = pd.M;
             NUD_X.Value = pd.X;
             NUD_Z.Value = pd.Z;
             NUD_Y.Value = pd.Y;
             badgeval = s.Misc.Badges;
+
+            Main.SetCountrySubRegion(CB_Country, "gen5_countries");
+            CB_Country.SelectedValue = s.Country;
+            CB_Region.SelectedValue = s.Region;
+
+            TB_OTName.Click += (_, _) => ClickOT(s.PlayerData.OriginalTrainerTrash, TB_OTName);
         }
 
         for (int i = 0; i < cba.Length; i++)
@@ -168,6 +206,14 @@ public partial class SAV_SimpleTrainer : Form
     private readonly bool Loading;
     private bool MapUpdated;
 
+    private void ClickOT(Span<byte> trash, TextBox tb)
+    {
+        // Special Character Form
+        if (ModifierKeys != Keys.Control)
+            return;
+        TrashEditor.Show(tb, SAV, trash);
+    }
+
     private void ChangeFFFF(object sender, EventArgs e)
     {
         MaskedTextBox box = (MaskedTextBox)sender;
@@ -188,8 +234,8 @@ public partial class SAV_SimpleTrainer : Form
             SAV.OT = TB_OTName.Text;
         SAV.Gender = (byte)CB_Gender.SelectedIndex;
 
-        SAV.TID = (ushort)Util.ToUInt32(MT_TID.Text);
-        SAV.SID = (ushort)Util.ToUInt32(MT_SID.Text);
+        SAV.TID16 = (ushort)Util.ToUInt32(MT_TID.Text);
+        SAV.SID16 = (ushort)Util.ToUInt32(MT_SID.Text);
         SAV.Money = Util.ToUInt32(MT_Money.Text);
 
         SAV.PlayedHours = ushort.Parse(MT_Hours.Text);
@@ -226,7 +272,12 @@ public partial class SAV_SimpleTrainer : Form
 
         if (SAV is SAV3 sav3)
         {
+            var small = sav3.SmallBlock;
             sav3.Badges = badgeval & 0xFF;
+            small.OptionBattleStyle = CB_BattleStyle.SelectedIndex == 1;
+            small.OptionSound = CB_SoundType.SelectedIndex == 1;
+            small.TextSpeed = CB_TextSpeed.SelectedIndex;
+            small.OptionBattleScene = !CHK_BattleEffects.Checked;
         }
 
         if (SAV is SAV4 sav4)
@@ -238,17 +289,19 @@ public partial class SAV_SimpleTrainer : Form
                 sav4.Z = (int)NUD_Z.Value;
                 sav4.Y = (int)NUD_Y.Value;
             }
-            sav4.Badges = badgeval & 0xFF;
+            sav4.Badges = (byte)badgeval;
             if (sav4 is SAV4HGSS hgss)
             {
                 hgss.Badges16 = badgeval >> 8;
             }
+            sav4.Country = WinFormsUtil.GetIndex(CB_Country);
+            sav4.Region = WinFormsUtil.GetIndex(CB_Region);
         }
         else if (SAV is SAV5 s)
         {
             if (MapUpdated)
             {
-                var pd = s.PlayerData;
+                var pd = s.PlayerPosition;
                 pd.M = (int)NUD_M.Value;
                 pd.X = (int)NUD_X.Value;
                 pd.Z = (int)NUD_Z.Value;
@@ -256,6 +309,8 @@ public partial class SAV_SimpleTrainer : Form
             }
             s.Misc.Badges = badgeval & 0xFF;
             s.BattleSubway.BP = (ushort)Math.Min(Util.ToUInt32(MT_Coins.Text), SAV.MaxCoins);
+            s.Country = WinFormsUtil.GetIndex(CB_Country);
+            s.Region = WinFormsUtil.GetIndex(CB_Region);
         }
 
         SAV.SecondsToStart = (uint)DateUtil.GetSecondsFrom2000(CAL_AdventureStartDate.Value, CAL_AdventureStartTime.Value);
@@ -274,5 +329,25 @@ public partial class SAV_SimpleTrainer : Form
     {
         if (!Loading)
             MapUpdated = true;
+    }
+
+    private void UpdateCountry(object sender, EventArgs e)
+    {
+        if (sender is ComboBox c)
+        {
+            int index = WinFormsUtil.GetIndex(c);
+            if (SAV is SAV4)
+            {
+                Main.SetCountrySubRegion(CB_Region, $"gen4_sr_{index:000}");
+                if (CB_Region.Items.Count == 0)
+                    Main.SetCountrySubRegion(CB_Region, "gen4_sr_default");
+            }
+            else if (SAV is SAV5)
+            {
+                Main.SetCountrySubRegion(CB_Region, $"gen5_sr_{index:000}");
+                if (CB_Region.Items.Count == 0)
+                    Main.SetCountrySubRegion(CB_Region, "gen5_sr_default");
+            }
+        }
     }
 }

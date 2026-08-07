@@ -1,18 +1,20 @@
+using System;
+
 namespace PKHeX.Core;
 
-public sealed class WormholeInfoReader
+public sealed class WormholeInfoReader(SAV7 SAV)
 {
-    public readonly SAV7 SAV;
-    public WormholeInfoReader(SAV7 sav) => SAV = sav;
+    public readonly SAV7 SAV = SAV;
 
     // Wormhole shininess & flags found by @PP-theSLAYER
     // https://projectpokemon.org/home/forums/topic/39433-gen-7-save-research-thread/?page=3&tab=comments#comment-239090
-    public bool WormholeShininess // 0x4535 = Misc (0x4400 in USUM) + 0x0135
+    public bool WormholeShininess // 0x4535 = Misc (0x4400 in US/UM) + 0x0135
     {
-        get => SAV.Data[SAV.Misc.Offset + 0x0135] == 1;
-        set => SAV.Data[SAV.Misc.Offset + 0x0135] = value ? (byte)1 : (byte)0;
+        get => SAV.Misc.IsWormholeShiny;
+        set => SAV.Misc.IsWormholeShiny = value;
     }
 
+    /// <summary> Inclusive maximum </summary>
     public const int WormholeSlotMax = 15;
 
     // Slots currently use digits 1 through 15 inclusively.
@@ -23,7 +25,7 @@ public sealed class WormholeInfoReader
         {
             for (int i = 1; i <= WormholeSlotMax; i++)
             {
-                if (!SAV.GetEventFlag(i))
+                if (!SAV.EventWork.GetEventFlag(i))
                     return i;
             }
             return -1;
@@ -33,23 +35,21 @@ public sealed class WormholeInfoReader
             if (value is < 1 or > WormholeSlotMax)
                 return;
             for (int i = 1; i <= WormholeSlotMax; i++)
-            {
-                SAV.SetEventFlag(i, value != i);
-            }
+                SAV.EventWork.SetEventFlag(i, value != i);
         }
     }
 
-    public static readonly int[] StandardWormholes =
-    {
+    public static ReadOnlySpan<ushort> StandardWormholes =>
+    [
         256, // Red
         257, // Green
         258, // Yellow
         259, // Blue
-    };
+    ];
 
-    public static readonly int[] WormholeSlotsRed =
-    {
-        -1, // filler used for indexing with slot number
+    public static ReadOnlySpan<ushort> WormholeSlotsRed =>
+    [
+        0, // filler used for indexing with slot number
         144, // Articuno
         145, // Zapdos
         146, // Moltres
@@ -65,11 +65,11 @@ public sealed class WormholeInfoReader
         561, // Sigilyph
         581, // Swanna
         277, // Swellow
-    };
+    ];
 
-    public static readonly int[] WormholeSlotsGreen =
-    {
-        -1, // filler used for indexing with slot number
+    public static ReadOnlySpan<ushort> WormholeSlotsGreen =>
+    [
+        0, // filler used for indexing with slot number
         150, // Mewtwo
         243, // Raikou
         244, // Entei
@@ -85,11 +85,11 @@ public sealed class WormholeInfoReader
         695, // Heliolisk
         274, // Nuzleaf
         326, // Grumpig
-    };
+    ];
 
-    public static readonly int[] WormholeSlotsYellow =
-    {
-        -1, // filler used for indexing with slot number
+    public static ReadOnlySpan<ushort> WormholeSlotsYellow =>
+    [
+        0, // filler used for indexing with slot number
         377, // Regirock
         378, // Regice
         379, // Registeel
@@ -98,18 +98,18 @@ public sealed class WormholeInfoReader
         486, // Regigigas
         484, // Palkia
         487, // Giratina
-        -1, // unused
-        -1, // unused
+        0, // unused
+        0, // unused
         460, // Abomasnow
         308, // Medicham
         450, // Hippowdon
         558, // Crustle
         219, // Magcargo
-    };
+    ];
 
-    public static readonly int[] WormholeSlotsBlue =
-    {
-        -1, // filler used for indexing with slot number
+    public static ReadOnlySpan<ushort> WormholeSlotsBlue =>
+    [
+        0, // filler used for indexing with slot number
         245, // Suicune
         249, // Lugia
         380, // Latias
@@ -119,18 +119,18 @@ public sealed class WormholeInfoReader
         481, // Mesprit
         482, // Azelf
         646, // Kyurem
-        -1, // unused
+        0, // unused
         689, // Barbaracle
         271, // Lombre
         618, // Stunfisk
         419, // Floatzel
         195, // Quagsire
-    };
+    ];
 
-    public static int WormholeSlotToPokemon(int mapid, int slot)
+    public static ushort WormholeSlotToPokemon(int mapid, int slot)
     {
-        if (slot is < 1 or > WormholeSlotMax)
-            return -1;
+        if ((uint)slot > WormholeSlotMax)
+            return 0;
 
         return mapid switch
         {
@@ -138,7 +138,7 @@ public sealed class WormholeInfoReader
             257 => WormholeSlotsGreen[slot],
             258 => WormholeSlotsYellow[slot],
             259 => WormholeSlotsBlue[slot],
-            _ => -1,
+            _ => 0,
         };
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics.CodeAnalysis;
 
 namespace PKHeX.Core;
@@ -17,37 +17,37 @@ public sealed class PokedexSaveData
 
     public const int STATISTICS_ENTRIES_MAX = 1480;
 
-    public PokedexSaveData(byte[] data)
+    public PokedexSaveData(Memory<byte> data)
     {
-        if (data.Length != POKEDEX_SAVE_DATA_SIZE)
-            throw new ArgumentException($"Unexpected {nameof(PokedexSaveData)} block size!");
+        ArgumentOutOfRangeException.ThrowIfNotEqual(data.Length, POKEDEX_SAVE_DATA_SIZE);
 
-        GlobalData = new PokedexSaveGlobalData(data, 0);
+        GlobalData = new PokedexSaveGlobalData(data[..PokedexSaveGlobalData.SIZE]);
 
         LocalData = new PokedexSaveLocalData[5];
         for (var i = 0; i < LocalData.Length; i++)
-            LocalData[i] = new PokedexSaveLocalData(data, 0x10 + (0x10 * i));
+            LocalData[i] = new PokedexSaveLocalData(data.Slice(0x10 + (PokedexSaveLocalData.SIZE * i), PokedexSaveLocalData.SIZE));
 
         ResearchEntries = new PokedexSaveResearchEntry[PokedexSave8a.MAX_SPECIES];
         for (var i = 0; i < ResearchEntries.Length; i++)
-            ResearchEntries[i] = new PokedexSaveResearchEntry(data, 0x70 + (0x58 * i));
+            ResearchEntries[i] = new PokedexSaveResearchEntry(data.Slice(0x70 + (0x58 * i), PokedexSaveResearchEntry.SIZE));
 
         StatisticsEntries = new PokedexSaveStatisticsEntry[STATISTICS_ENTRIES_MAX];
         for (var i = 0; i < StatisticsEntries.Length; i++)
-            StatisticsEntries[i] = new PokedexSaveStatisticsEntry(data, 0x151A8 + (0x18 * i));
+            StatisticsEntries[i] = new PokedexSaveStatisticsEntry(data.Slice(0x151A8 + (PokedexSaveStatisticsEntry.SIZE * i), PokedexSaveStatisticsEntry.SIZE));
     }
 
     public bool IsPokedexCompleted(PokedexType8a which) => (GlobalData.Flags & (which < PokedexType8a.Count ? (1 << (int)which) : 1)) != 0;
     public bool IsPokedexPerfect(PokedexType8a which) => (GlobalData.Flags & ((which < PokedexType8a.Count ? (1 << (int)which) : 1) << 6)) != 0;
 
-    public void SetPokedexCompleted(PokedexType8a which) => GlobalData.Flags |= (uint)(which < PokedexType8a.Count ? (1 << (int)which) : 1);
-    public void SetPokedexPerfect(PokedexType8a which) => GlobalData.Flags |= (uint)((which < PokedexType8a.Count ? (1 << (int)which) : 1) << 6);
+    public void SetPokedexCompleted(PokedexType8a which) => GlobalData.Flags |= which < PokedexType8a.Count ? (1u << (int)which) : 1;
+    public void SetPokedexPerfect(PokedexType8a which) => GlobalData.Flags |= (which < PokedexType8a.Count ? (1u << (int)which) : 1) << 6;
 
-    public PokedexSaveResearchEntry GetResearchEntry(int species) => ResearchEntries[species];
+    public PokedexSaveResearchEntry GetResearchEntry(ushort species) => ResearchEntries[species];
 
-    public bool TryGetStatisticsEntry(int species, int form, [NotNullWhen(true)] out PokedexSaveStatisticsEntry? entry)
+    public bool TryGetStatisticsEntry(ushort species, byte form, [NotNullWhen(true)] out PokedexSaveStatisticsEntry? entry)
     {
-        var fstIdIndex = Array.BinarySearch(PokedexConstants8a.FormStorageIndexIds, (ushort)(species | (form << 11)));
+        var mash = (ushort)(species | (form << 11));
+        var fstIdIndex = PokedexConstants8a.FormStorageIndexIds.BinarySearch(mash);
         if (fstIdIndex >= 0)
         {
             entry = StatisticsEntries[PokedexConstants8a.FormStorageIndexValues[fstIdIndex]];
@@ -71,8 +71,8 @@ public sealed class PokedexSaveData
         return TryGetStatisticsEntry(pk.Species, pk.Form, out entry);
     }
 
-    public int GetPokeGetCount(int species) => GetResearchEntry(species).NumObtained;
-    public int GetPokeResearchRate(int species) => GetResearchEntry(species).ResearchRate;
+    public int GetPokeGetCount(ushort species) => GetResearchEntry(species).NumObtained;
+    public int GetPokeResearchRate(ushort species) => GetResearchEntry(species).ResearchRate;
 
     public ushort NextUpdateCounter()
     {
@@ -108,8 +108,8 @@ public sealed class PokedexSaveData
 
     public void SetTotalResearchPoint(int tp) => GlobalData.TotalResearchPoints = tp;
 
-    public bool HasAnyReport(int species) => GetResearchEntry(species).HasAnyReport;
-    public bool IsPerfect(int species) => GetResearchEntry(species).IsPerfect;
+    public bool HasAnyReport(ushort species) => GetResearchEntry(species).HasAnyReport;
+    public bool IsPerfect(ushort species) => GetResearchEntry(species).IsPerfect;
 
     public void SetGlobalField04(byte v) => GlobalData.Field_04 = v;
     public byte GetGlobalField04() => GlobalData.Field_04;
@@ -129,6 +129,6 @@ public sealed class PokedexSaveData
         outField0C = local.Field_0C;
     }
 
-    public void SetGlobalFormField(int form) => GlobalData.FormField = (byte)form;
+    public void SetGlobalFormField(byte form) => GlobalData.FormField = form;
     public int GetGlobalFormField() => GlobalData.FormField;
 }

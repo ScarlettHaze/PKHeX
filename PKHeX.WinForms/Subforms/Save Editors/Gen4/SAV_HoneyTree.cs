@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+using System;
 using System.Windows.Forms;
 using PKHeX.Core;
 
@@ -16,44 +15,42 @@ public partial class SAV_HoneyTree : Form
         WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
         SAV = (SAV4Sinnoh)(Origin = sav).Clone();
 
-        Table = SAV switch
-        {
-            SAV4DP => HoneyTreeValue.TableDP,
-            SAV4Pt => HoneyTreeValue.TablePt,
-            _ => throw new Exception(),
-        };
-
         // Get Munchlax tree for this savegame in screen
-        MunchlaxTrees = SAV.GetMunchlaxTrees().ToArray();
+        MunchlaxTrees = new byte[4];
+        HoneyTreeUtil.CalculateMunchlaxTrees(SAV.ID32, MunchlaxTrees);
 
         const string sep = "- ";
-        L_Tree0.Text = string.Join(Environment.NewLine, MunchlaxTrees.Select(z => sep + CB_TreeList.Items[z]));
+        var names = CB_TreeList.Items;
+        L_Tree0.Text = string.Join(Environment.NewLine,
+            sep + names[MunchlaxTrees[0]],
+            sep + names[MunchlaxTrees[1]],
+            sep + names[MunchlaxTrees[2]],
+            sep + names[MunchlaxTrees[3]]);
 
         CB_TreeList.SelectedIndex = 0;
     }
 
-    private readonly int[] MunchlaxTrees;
-    private readonly int[][] Table;
+    private readonly byte[] MunchlaxTrees;
     private int entry;
     private bool loading;
     private HoneyTreeValue? Tree;
 
-    private int TreeSpecies => Table[(int)NUD_Group.Value][(int)NUD_Slot.Value];
+    private ushort TreeSpecies => SAV.GetHoneyTreeSpecies((int)NUD_Group.Value, (int)NUD_Slot.Value);
     private void B_Catchable_Click(object sender, EventArgs e) => NUD_Time.Value = 1080;
 
     private void ChangeGroupSlot(object sender, EventArgs e)
     {
-        int species = TreeSpecies;
+        var species = TreeSpecies;
         L_Species.Text = GetLabelText(species);
 
         if (loading)
             return;
 
-        if (species == (int)Species.Munchlax && !MunchlaxTrees.Contains(CB_TreeList.SelectedIndex))
-            WinFormsUtil.Alert("Catching Munchlax in this tree will make it illegal for this savegame's TID/SID combination.");
+        if (species == (int)Species.Munchlax && !MunchlaxTrees.Contains((byte)CB_TreeList.SelectedIndex))
+            WinFormsUtil.Alert("Catching Munchlax in this tree will make it illegal for this savegame's TID16/SID16 combination.");
     }
 
-    private static string GetLabelText(int species)
+    private static string GetLabelText(ushort species)
     {
         var str = GameInfo.Strings;
         var arr = str.specieslist;
@@ -89,7 +86,7 @@ public partial class SAV_HoneyTree : Form
 
     private void SaveTree()
     {
-        if (Tree == null)
+        if (Tree is null)
             return;
 
         Tree.Time = (uint)NUD_Time.Value;

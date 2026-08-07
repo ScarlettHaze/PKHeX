@@ -6,7 +6,7 @@ namespace PKHeX.Core;
 /// Restriction Flags for receiving 3DS/NDS era events.
 /// </summary>
 [Flags]
-public enum MysteryGiftRestriction
+public enum MysteryGiftRestriction : ushort
 {
     None = 0,
     LangJapanese = 1 << LanguageID.Japanese,
@@ -32,35 +32,39 @@ public enum MysteryGiftRestriction
     OTReplacedOnTrade = RegTW << 1,
 }
 
+/// <summary>
+/// Extension methods for <see cref="MysteryGiftRestriction"/>.
+/// </summary>
 public static class MysteryGiftRestrictionExtensions
 {
-    public static bool HasFlagFast(this MysteryGiftRestriction value, MysteryGiftRestriction flag)
+    extension(MysteryGiftRestriction value)
     {
-        return (value & flag) != 0;
-    }
-
-    /// <summary>
-    /// Checks the flags to pick out a language that can receive the gift.
-    /// </summary>
-    /// <param name="value">Flag value</param>
-    /// <returns>Language ID; -1 if none</returns>
-    public static int GetSuggestedLanguage(this MysteryGiftRestriction value)
-    {
-        for (int i = (int)LanguageID.Japanese; i <= (int)LanguageID.Korean; i++)
+        /// <summary>
+        /// Checks the flags to pick out a language that can receive the gift.
+        /// </summary>
+        /// <returns>Language ID; -1 if none</returns>
+        public int GetSuggestedLanguage()
         {
-            if (value.HasFlagFast((MysteryGiftRestriction)(1 << i)))
-                return i;
+            for (int i = (int)LanguageID.Japanese; i <= (int)LanguageID.Korean; i++)
+            {
+                if (value.HasFlag((MysteryGiftRestriction)(1 << i)))
+                    return i;
+            }
+            return -1;
         }
-        return -1;
-    }
 
-    public static int GetSuggestedRegion(this MysteryGiftRestriction value)
-    {
-        for (int i = (int)Region3DSIndex.Japan; i <= (int)Region3DSIndex.Taiwan; i++)
+        /// <summary>
+        /// Finds the lowest index of a region that can receive the gift.
+        /// </summary>
+        /// <returns>Region ID; -1 if none</returns>
+        public int GetSuggestedRegion()
         {
-            if (value.HasFlagFast((MysteryGiftRestriction)((int)MysteryGiftRestriction.RegionBase << i)))
-                return i;
+            for (int i = (int)Region3DSIndex.Japan; i <= (int)Region3DSIndex.Taiwan; i++)
+            {
+                if (value.HasFlag((MysteryGiftRestriction)((int)MysteryGiftRestriction.RegionBase << i)))
+                    return i;
+            }
+            return -1;
         }
-        return -1;
     }
 }

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using static System.Buffers.Binary.BinaryPrimitives;
 
 namespace PKHeX.Core;
@@ -7,25 +6,29 @@ namespace PKHeX.Core;
 /// <summary>
 /// Generation 6 Mystery Gift Template File
 /// </summary>
-public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, ILangNick, IContestStats, IContestStatsMutable, INature, IMemoryOT
+public sealed class WC6(Memory<byte> raw) : DataMysteryGift(raw), IRibbonSetEvent3, IRibbonSetEvent4,
+    ILangNick, IContestStats, INature, IMemoryOT, IRelearn, IRestrictVersion
 {
+    public WC6() : this(new byte[Size]) { }
+    public override WC6 Clone() => new(Data.ToArray());
+
     public const int Size = 0x108;
     public const uint EonTicketConst = 0x225D73C2;
-    public override int Generation => 6;
-
-    public WC6() : this(new byte[Size]) { }
-    public WC6(byte[] data) : base(data) { }
+    public override byte Generation => 6;
+    public override EntityContext Context => EntityContext.Gen6;
+    public override bool FatefulEncounter => !IsLinkGift; // Link gifts do not set fateful encounter
+    public bool IsLinkGift => Location == Locations.LinkGift6;
 
     public int RestrictLanguage { get; set; } // None
     public byte RestrictVersion { get; set; } // Permit All
 
-    public bool CanBeReceivedByVersion(int v)
+    public bool CanBeReceivedByVersion(GameVersion version)
     {
-        if (v is < (int)GameVersion.X or > (int)GameVersion.OR)
+        if (version is < GameVersion.X or > GameVersion.OR)
             return false;
         if (RestrictVersion == 0)
             return true; // no data
-        var bitIndex = v - (int) GameVersion.X;
+        var bitIndex = (int)(version - GameVersion.X);
         var bit = 1 << bitIndex;
         return (RestrictVersion & bit) != 0;
     }
@@ -33,21 +36,21 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
     // General Card Properties
     public override int CardID
     {
-        get => ReadUInt16LittleEndian(Data.AsSpan(0));
-        set => WriteUInt16LittleEndian(Data.AsSpan(0), (ushort)value);
+        get => ReadUInt16LittleEndian(Data);
+        set => WriteUInt16LittleEndian(Data, (ushort)value);
     }
 
     public override string CardTitle
     {
         // Max len 36 char, followed by null terminator
-        get => StringConverter6.GetString(Data.AsSpan(2, 0x4A));
-        set => StringConverter6.SetString(Data.AsSpan(2, 0x4A), value.AsSpan(), 36, StringConverterOption.ClearZero);
+        get => StringConverter6.GetString(Data.Slice(2, 0x4A));
+        set => StringConverter6.SetString(Data.Slice(2, 0x4A), value, 36, Language, StringConverterOption.ClearZero);
     }
 
     internal uint RawDate
     {
-        get => ReadUInt32LittleEndian(Data.AsSpan(0x4C));
-        set => WriteUInt32LittleEndian(Data.AsSpan(0x4C), value);
+        get => ReadUInt32LittleEndian(Data[0x4C..]);
+        set => WriteUInt32LittleEndian(Data[0x4C..], value);
     }
 
     private uint Year
@@ -73,24 +76,24 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
     /// <summary>
     /// Gets or sets the date of the card.
     /// </summary>
-    public DateTime? Date
+    public DateOnly? Date
     {
         get
         {
             // Check to see if date is valid
-            if (!DateUtil.IsDateValid(Year, Month, Day))
+            if (!DateUtil.IsValidDate(Year, Month, Day))
                 return null;
 
-            return new DateTime((int)Year, (int)Month, (int)Day);
+            return new DateOnly((int)Year, (int)Month, (int)Day);
         }
         set
         {
-            if (value.HasValue)
+            if (value is { } dt)
             {
                 // Only update the properties if a value is provided.
-                Year = (ushort)value.Value.Year;
-                Month = (byte)value.Value.Month;
-                Day = (byte)value.Value.Day;
+                Year = (ushort)dt.Year;
+                Month = (byte)dt.Month;
+                Day = (byte)dt.Day;
             }
             else
             {
@@ -113,12 +116,12 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
     public override bool IsItem { get => CardType == 1; set { if (value) CardType = 1; } }
 
     public override int ItemID {
-        get => ReadUInt16LittleEndian(Data.AsSpan(0x68));
-        set => WriteUInt16LittleEndian(Data.AsSpan(0x68), (ushort)value); }
+        get => ReadUInt16LittleEndian(Data[0x68..]);
+        set => WriteUInt16LittleEndian(Data[0x68..], (ushort)value); }
 
     public override int Quantity {
-        get => ReadUInt16LittleEndian(Data.AsSpan(0x70));
-        set => WriteUInt16LittleEndian(Data.AsSpan(0x70), (ushort)value); }
+        get => ReadUInt16LittleEndian(Data[0x70..]);
+        set => WriteUInt16LittleEndian(Data[0x70..], (ushort)value); }
 
     // Pokémon Properties
     public override bool IsEntity { get => CardType == 0; set { if (value) CardType = 0; } }
@@ -138,53 +141,50 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
         _ => throw new ArgumentOutOfRangeException(),
     };
 
-    private int GetShinyXor()
+    private uint GetShinyXor()
     {
         // Player owned anti-shiny fixed PID
-        if (TID == 0 && SID == 0)
-            return int.MaxValue;
-
-        var pid = PID;
-        var psv = (int)((pid >> 16) ^ (pid & 0xFFFF));
-        var tsv = TID ^ SID;
-        return psv ^ tsv;
+        if (ID32 == 0)
+            return uint.MaxValue;
+        return ShinyUtil.GetShinyXor(PID, ID32);
     }
 
-    public override int TID { get => ReadUInt16LittleEndian(Data.AsSpan(0x68)); set => WriteUInt16LittleEndian(Data.AsSpan(0x68), (ushort)value); }
-    public override int SID { get => ReadUInt16LittleEndian(Data.AsSpan(0x6A)); set => WriteUInt16LittleEndian(Data.AsSpan(0x6A), (ushort)value); }
-    public int OriginGame { get => Data[0x6C]; set => Data[0x6C] = (byte)value; }
-    public uint EncryptionConstant { get => ReadUInt32LittleEndian(Data.AsSpan(0x70)); set => WriteUInt32LittleEndian(Data.AsSpan(0x70), value); }
-    public override int Ball { get => Data[0x76]; set => Data[0x76] = (byte)value; }
-    public override int HeldItem { get => ReadUInt16LittleEndian(Data.AsSpan(0x78)); set => WriteUInt16LittleEndian(Data.AsSpan(0x78), (ushort)value); }
+    public override uint ID32 { get => ReadUInt32LittleEndian(Data[0x68..]); set => WriteUInt32LittleEndian(Data[0x68..], value); }
+    public override ushort TID16 { get => ReadUInt16LittleEndian(Data[0x68..]); set => WriteUInt16LittleEndian(Data[0x68..], value); }
+    public override ushort SID16 { get => ReadUInt16LittleEndian(Data[0x6A..]); set => WriteUInt16LittleEndian(Data[0x6A..], value); }
+    public byte OriginGame { get => Data[0x6C]; set => Data[0x6C] = value; }
+    public uint EncryptionConstant { get => ReadUInt32LittleEndian(Data[0x70..]); set => WriteUInt32LittleEndian(Data[0x70..], value); }
+    public override byte Ball { get => Data[0x76]; set => Data[0x76] = value; }
+    public override int HeldItem { get => ReadUInt16LittleEndian(Data[0x78..]); set => WriteUInt16LittleEndian(Data[0x78..], (ushort)value); }
 
-    public int Move1 { get => ReadUInt16LittleEndian(Data.AsSpan(0x7A)); set => WriteUInt16LittleEndian(Data.AsSpan(0x7A), (ushort)value); }
-    public int Move2 { get => ReadUInt16LittleEndian(Data.AsSpan(0x7C)); set => WriteUInt16LittleEndian(Data.AsSpan(0x7C), (ushort)value); }
-    public int Move3 { get => ReadUInt16LittleEndian(Data.AsSpan(0x7E)); set => WriteUInt16LittleEndian(Data.AsSpan(0x7E), (ushort)value); }
-    public int Move4 { get => ReadUInt16LittleEndian(Data.AsSpan(0x80)); set => WriteUInt16LittleEndian(Data.AsSpan(0x80), (ushort)value); }
+    public ushort Move1 { get => ReadUInt16LittleEndian(Data[0x7A..]); set => WriteUInt16LittleEndian(Data[0x7A..], value); }
+    public ushort Move2 { get => ReadUInt16LittleEndian(Data[0x7C..]); set => WriteUInt16LittleEndian(Data[0x7C..], value); }
+    public ushort Move3 { get => ReadUInt16LittleEndian(Data[0x7E..]); set => WriteUInt16LittleEndian(Data[0x7E..], value); }
+    public ushort Move4 { get => ReadUInt16LittleEndian(Data[0x80..]); set => WriteUInt16LittleEndian(Data[0x80..], value); }
 
-    public override int Species { get => ReadUInt16LittleEndian(Data.AsSpan(0x82)); set => WriteUInt16LittleEndian(Data.AsSpan(0x82), (ushort)value); }
-    public override int Form { get => Data[0x84]; set => Data[0x84] = (byte)value; }
+    public override ushort Species { get => ReadUInt16LittleEndian(Data[0x82..]); set => WriteUInt16LittleEndian(Data[0x82..], value); }
+    public override byte Form { get => Data[0x84]; set => Data[0x84] = value; }
     public int Language { get => Data[0x85]; set => Data[0x85] = (byte)value; }
 
     public string Nickname
     {
-        get => StringConverter6.GetString(Data.AsSpan(0x86, 0x1A));
-        set => StringConverter6.SetString(Data.AsSpan(0x86, 0x1A), value.AsSpan(), 12, StringConverterOption.ClearZero);
+        get => StringConverter6.GetString(Data.Slice(0x86, 0x1A));
+        set => StringConverter6.SetString(Data.Slice(0x86, 0x1A), value, 12, Language, StringConverterOption.ClearZero);
     }
 
-    public int Nature { get => (sbyte)Data[0xA0]; set => Data[0xA0] = (byte)value; }
-    public override int Gender { get => Data[0xA1]; set => Data[0xA1] = (byte)value; }
-    public override int AbilityType { get => Data[0xA2]; set => Data[0xA2] = (byte)value; }
+    public Nature Nature { get => (Nature)Data[0xA0]; set => Data[0xA0] = (byte)value; }
+    public override byte Gender { get => Data[0xA1]; set => Data[0xA1] = value; }
+    public int AbilityType { get => Data[0xA2]; set => Data[0xA2] = (byte)value; }
     public ShinyType6 PIDType { get => (ShinyType6)Data[0xA3]; set => Data[0xA3] = (byte)value; }
-    public override int EggLocation { get => ReadUInt16LittleEndian(Data.AsSpan(0xA4)); set => WriteUInt16LittleEndian(Data.AsSpan(0xA4), (ushort)value); }
-    public int MetLocation { get => ReadUInt16LittleEndian(Data.AsSpan(0xA6)); set => WriteUInt16LittleEndian(Data.AsSpan(0xA6), (ushort)value); }
+    public override ushort EggLocation { get => ReadUInt16LittleEndian(Data[0xA4..]); set => WriteUInt16LittleEndian(Data[0xA4..], value); }
+    public override ushort Location { get => ReadUInt16LittleEndian(Data[0xA6..]); set => WriteUInt16LittleEndian(Data[0xA6..], value); }
 
-    public byte CNT_Cool   { get => Data[0xA9]; set => Data[0xA9] = value; }
-    public byte CNT_Beauty { get => Data[0xAA]; set => Data[0xAA] = value; }
-    public byte CNT_Cute   { get => Data[0xAB]; set => Data[0xAB] = value; }
-    public byte CNT_Smart  { get => Data[0xAC]; set => Data[0xAC] = value; }
-    public byte CNT_Tough  { get => Data[0xAD]; set => Data[0xAD] = value; }
-    public byte CNT_Sheen  { get => Data[0xAE]; set => Data[0xAE] = value; }
+    public byte ContestCool   { get => Data[0xA9]; set => Data[0xA9] = value; }
+    public byte ContestBeauty { get => Data[0xAA]; set => Data[0xAA] = value; }
+    public byte ContestCute   { get => Data[0xAB]; set => Data[0xAB] = value; }
+    public byte ContestSmart  { get => Data[0xAC]; set => Data[0xAC] = value; }
+    public byte ContestTough  { get => Data[0xAD]; set => Data[0xAD] = value; }
+    public byte ContestSheen  { get => Data[0xAE]; set => Data[0xAE] = value; }
 
     public int IV_HP { get => Data[0xAF]; set => Data[0xAF] = (byte)value; }
     public int IV_ATK { get => Data[0xB0]; set => Data[0xB0] = (byte)value; }
@@ -193,27 +193,31 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
     public int IV_SPA { get => Data[0xB3]; set => Data[0xB3] = (byte)value; }
     public int IV_SPD { get => Data[0xB4]; set => Data[0xB4] = (byte)value; }
 
-    public int OTGender { get => Data[0xB5]; set => Data[0xB5] = (byte)value; }
+    public byte OTGender { get => Data[0xB5]; set => Data[0xB5] = value; }
 
-    public override string OT_Name
+    public Span<byte> OriginalTrainerTrash => Data.Slice(0xB6, 0x1A);
+
+    public override string OriginalTrainerName
     {
-        get => StringConverter6.GetString(Data.AsSpan(0xB6, 0x1A));
-        set => StringConverter6.SetString(Data.AsSpan(0xB6, 0x1A), value.AsSpan(), 12, StringConverterOption.ClearZero);
+        get => StringConverter6.GetString(OriginalTrainerTrash);
+        set => StringConverter6.SetString(OriginalTrainerTrash, value, 12, Language, StringConverterOption.ClearZero);
     }
+
+    public bool IsOriginalTrainerNameSet => Data[0xB6] != 0 || Data[0xB7] != 0;
 
     public override byte Level { get => Data[0xD0]; set => Data[0xD0] = value; }
     public override bool IsEgg { get => Data[0xD1] == 1; set => Data[0xD1] = value ? (byte)1 : (byte)0; }
-    public uint PID { get => ReadUInt32LittleEndian(Data.AsSpan(0xD4)); set => WriteUInt32LittleEndian(Data.AsSpan(0xD4), value); }
+    public uint PID { get => ReadUInt32LittleEndian(Data[0xD4..]); set => WriteUInt32LittleEndian(Data[0xD4..], value); }
 
-    public int RelearnMove1 { get => ReadUInt16LittleEndian(Data.AsSpan(0xD8)); set => WriteUInt16LittleEndian(Data.AsSpan(0xD8), (ushort)value); }
-    public int RelearnMove2 { get => ReadUInt16LittleEndian(Data.AsSpan(0xDA)); set => WriteUInt16LittleEndian(Data.AsSpan(0xDA), (ushort)value); }
-    public int RelearnMove3 { get => ReadUInt16LittleEndian(Data.AsSpan(0xDC)); set => WriteUInt16LittleEndian(Data.AsSpan(0xDC), (ushort)value); }
-    public int RelearnMove4 { get => ReadUInt16LittleEndian(Data.AsSpan(0xDE)); set => WriteUInt16LittleEndian(Data.AsSpan(0xDE), (ushort)value); }
+    public ushort RelearnMove1 { get => ReadUInt16LittleEndian(Data[0xD8..]); set => WriteUInt16LittleEndian(Data[0xD8..], value); }
+    public ushort RelearnMove2 { get => ReadUInt16LittleEndian(Data[0xDA..]); set => WriteUInt16LittleEndian(Data[0xDA..], value); }
+    public ushort RelearnMove3 { get => ReadUInt16LittleEndian(Data[0xDC..]); set => WriteUInt16LittleEndian(Data[0xDC..], value); }
+    public ushort RelearnMove4 { get => ReadUInt16LittleEndian(Data[0xDE..]); set => WriteUInt16LittleEndian(Data[0xDE..], value); }
 
-    public byte OT_Intensity { get => Data[0xE0]; set => Data[0xE0] = value; }
-    public byte OT_Memory { get => Data[0xE1]; set => Data[0xE1] = value; }
-    public ushort OT_TextVar { get => ReadUInt16LittleEndian(Data.AsSpan(0xE2)); set => WriteUInt16LittleEndian(Data.AsSpan(0xE2), value); }
-    public byte OT_Feeling { get => Data[0xE4]; set => Data[0xE4] = value; }
+    public byte OriginalTrainerMemoryIntensity { get => Data[0xE0]; set => Data[0xE0] = value; }
+    public byte OriginalTrainerMemory { get => Data[0xE1]; set => Data[0xE1] = value; }
+    public ushort OriginalTrainerMemoryVariable { get => ReadUInt16LittleEndian(Data[0xE2..]); set => WriteUInt16LittleEndian(Data[0xE2..], value); }
+    public byte OriginalTrainerMemoryFeeling { get => Data[0xE4]; set => Data[0xE4] = value; }
 
     public int EV_HP { get => Data[0xE5]; set => Data[0xE5] = (byte)value; }
     public int EV_ATK { get => Data[0xE6]; set => Data[0xE6] = (byte)value; }
@@ -242,12 +246,13 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
     public bool RIB1_7                 { get => (RIB1 & (1 << 7)) == 1 << 7; set => RIB1 = (byte)((RIB1 & ~(1 << 7)) | (value ? 1 << 7 : 0)); }
 
     // Meta Accessible Properties
-    public override int[] IVs
+    public int[] IVs
     {
-        get => new[] { IV_HP, IV_ATK, IV_DEF, IV_SPE, IV_SPA, IV_SPD };
+        get => [IV_HP, IV_ATK, IV_DEF, IV_SPE, IV_SPA, IV_SPD];
         set
         {
-            if (value.Length != 6) return;
+            if (value.Length != 6)
+                return;
             IV_HP = value[0]; IV_ATK = value[1]; IV_DEF = value[2];
             IV_SPE = value[3]; IV_SPA = value[4]; IV_SPD = value[5];
         }
@@ -255,82 +260,80 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
 
     public int[] EVs
     {
-        get => new[] { EV_HP, EV_ATK, EV_DEF, EV_SPE, EV_SPA, EV_SPD };
+        get => [EV_HP, EV_ATK, EV_DEF, EV_SPE, EV_SPA, EV_SPD];
         set
         {
-            if (value.Length != 6) return;
+            if (value.Length != 6)
+                return;
             EV_HP = value[0]; EV_ATK = value[1]; EV_DEF = value[2];
             EV_SPE = value[3]; EV_SPA = value[4]; EV_SPD = value[5];
         }
     }
 
-    public bool IsNicknamed => Nickname.Length > 0;
-    public override int Location { get => MetLocation; set => MetLocation = (ushort)value; }
+    public bool IsNicknamed => Nickname.Length != 0;
 
-    public override IReadOnlyList<int> Moves
+    public override Moveset Moves
     {
-        get => new[] { Move1, Move2, Move3, Move4 };
+        get => new(Move1, Move2, Move3, Move4);
         set
         {
-            if (value.Count > 0) Move1 = value[0];
-            if (value.Count > 1) Move2 = value[1];
-            if (value.Count > 2) Move3 = value[2];
-            if (value.Count > 3) Move4 = value[3];
+            Move1 = value.Move1;
+            Move2 = value.Move2;
+            Move3 = value.Move3;
+            Move4 = value.Move4;
         }
     }
 
-    public override IReadOnlyList<int> Relearn
+    public Moveset Relearn
     {
-        get => new[] { RelearnMove1, RelearnMove2, RelearnMove3, RelearnMove4 };
+        get => new(RelearnMove1, RelearnMove2, RelearnMove3, RelearnMove4);
         set
         {
-            if (value.Count > 0) RelearnMove1 = value[0];
-            if (value.Count > 1) RelearnMove2 = value[1];
-            if (value.Count > 2) RelearnMove3 = value[2];
-            if (value.Count > 3) RelearnMove4 = value[3];
+            RelearnMove1 = value.Move1;
+            RelearnMove2 = value.Move2;
+            RelearnMove3 = value.Move3;
+            RelearnMove4 = value.Move4;
         }
     }
 
-    public bool IsLinkGift => MetLocation == Locations.LinkGift6;
-
-    public override PKM ConvertToPKM(ITrainerInfo tr, EncounterCriteria criteria)
+    public override PK6 ConvertToPKM(ITrainerInfo tr, EncounterCriteria criteria)
     {
         if (!IsEntity)
             throw new ArgumentException(nameof(IsEntity));
 
+        var version = OriginGame != 0 ? (GameVersion)OriginGame : this.GetCompatibleVersion(tr.Version);
+        int language = (int)Core.Language.GetSafeLanguage456((LanguageID)tr.Language);
+        var geo = tr.GetRegionOrigin(language);
         var rnd = Util.Rand;
+        byte currentLevel = Level > 0 ? Level : (byte)(1 + rnd.Next(100));
 
-        int currentLevel = Level > 0 ? Level : rnd.Next(1, 101);
         var pi = PersonalTable.AO.GetFormEntry(Species, Form);
         PK6 pk = new()
         {
             Species = Species,
             HeldItem = HeldItem,
-            TID = TID,
-            SID = SID,
-            Met_Level = currentLevel,
+            TID16 = TID16,
+            SID16 = SID16,
+            MetLevel = currentLevel,
             Form = Form,
-            EncryptionConstant = EncryptionConstant != 0 ? EncryptionConstant : Util.Rand32(),
-            Version = OriginGame != 0 ? OriginGame : tr.Game,
-            Language = Language != 0 ? Language : tr.Language,
+            EncryptionConstant = EncryptionConstant != 0 ? EncryptionConstant : rnd.Rand32(),
+            Version = OriginGame != 0 ? (GameVersion)OriginGame : version,
+            Language = Language != 0 ? Language : language,
             Ball = Ball,
             Move1 = Move1, Move2 = Move2, Move3 = Move3, Move4 = Move4,
             RelearnMove1 = RelearnMove1, RelearnMove2 = RelearnMove2,
             RelearnMove3 = RelearnMove3, RelearnMove4 = RelearnMove4,
-            Met_Location = MetLocation,
-            Egg_Location = EggLocation,
-            CNT_Cool = CNT_Cool,
-            CNT_Beauty = CNT_Beauty,
-            CNT_Cute = CNT_Cute,
-            CNT_Smart = CNT_Smart,
-            CNT_Tough = CNT_Tough,
-            CNT_Sheen = CNT_Sheen,
+            MetLocation = Location,
+            EggLocation = EggLocation,
+            ContestCool = ContestCool,
+            ContestBeauty = ContestBeauty,
+            ContestCute = ContestCute,
+            ContestSmart = ContestSmart,
+            ContestTough = ContestTough,
+            ContestSheen = ContestSheen,
 
-            OT_Name = OT_Name.Length > 0 ? OT_Name : tr.OT,
-            OT_Gender = OTGender != 3 ? OTGender % 2 : tr.Gender,
-            HT_Name = OT_Name.Length > 0 ? tr.OT : string.Empty,
-            HT_Gender = OT_Name.Length > 0 ? tr.Gender : 0,
-            CurrentHandler = OT_Name.Length > 0 ? 1 : 0,
+            OriginalTrainerName = IsOriginalTrainerNameSet ? OriginalTrainerName : tr.OT,
+            OriginalTrainerGender = OTGender != 3 ? (byte)(OTGender % 2) : tr.Gender,
 
             EXP = Experience.GetEXP(Level, pi.EXPGrowth),
 
@@ -353,12 +356,12 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
             RibbonChampionNational = RibbonChampionNational,
             RibbonChampionWorld = RibbonChampionWorld,
 
-            OT_Friendship = pi.BaseFriendship,
-            OT_Intensity = OT_Intensity,
-            OT_Memory = OT_Memory,
-            OT_TextVar = OT_TextVar,
-            OT_Feeling = OT_Feeling,
-            FatefulEncounter = !IsLinkGift, // Link gifts do not set fateful encounter
+            OriginalTrainerFriendship = pi.BaseFriendship,
+            OriginalTrainerMemoryIntensity = OriginalTrainerMemoryIntensity,
+            OriginalTrainerMemory = OriginalTrainerMemory,
+            OriginalTrainerMemoryVariable = OriginalTrainerMemoryVariable,
+            OriginalTrainerMemoryFeeling = OriginalTrainerMemoryFeeling,
+            FatefulEncounter = FatefulEncounter,
 
             EV_HP = EV_HP,
             EV_ATK = EV_ATK,
@@ -366,27 +369,28 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
             EV_SPE = EV_SPE,
             EV_SPA = EV_SPA,
             EV_SPD = EV_SPD,
+
+            ConsoleRegion = geo.ConsoleRegion,
+            Country = geo.Country,
+            Region = geo.Region,
         };
 
-        if (tr is IRegionOrigin o)
+        if (IsOriginalTrainerNameSet)
         {
-            pk.Country = o.Country;
-            pk.Region = o.Region;
-            pk.ConsoleRegion = o.ConsoleRegion;
-        }
-        else
-        {
-            pk.SetDefaultRegionOrigins();
+            pk.HandlingTrainerName = tr.OT;
+            pk.HandlingTrainerGender = tr.Gender;
+            pk.HandlingTrainerFriendship = pk.OriginalTrainerFriendship;
+            pk.CurrentHandler = 1;
         }
 
-        pk.SetMaximumPPCurrent();
+        pk.HealPP();
 
-        pk.MetDate = Date ?? DateTime.Now;
+        pk.MetDate = Date ?? EncounterDate.GetDate3DS();
 
         if ((tr.Generation > Generation && OriginGame == 0) || !CanBeReceivedByVersion(pk.Version))
         {
             // give random valid game
-            do { pk.Version = (int)GameVersion.X + rnd.Next(4); }
+            do { pk.Version = GameVersion.X + (byte)rnd.Next(4); }
             while (!CanBeReceivedByVersion(pk.Version));
         }
 
@@ -394,18 +398,18 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
         {
             if (pk.CurrentHandler == 0) // OT
             {
-                pk.OT_Memory = 3;
-                pk.OT_TextVar = 9;
-                pk.OT_Intensity = 1;
-                pk.OT_Feeling = MemoryContext6.GetRandomFeeling6(pk.OT_Memory, 10); // 0-9
+                pk.OriginalTrainerMemory = 3;
+                pk.OriginalTrainerMemoryVariable = 9;
+                pk.OriginalTrainerMemoryIntensity = 1;
+                pk.OriginalTrainerMemoryFeeling = MemoryContext6.GetRandomFeeling6(pk.OriginalTrainerMemory, 10); // 0-9
             }
             else
             {
-                pk.HT_Memory = 3;
-                pk.HT_TextVar = 9;
-                pk.HT_Intensity = 1;
-                pk.HT_Feeling = MemoryContext6.GetRandomFeeling6(pk.HT_Memory, 10); // 0-9
-                pk.HT_Friendship = pk.OT_Friendship;
+                pk.HandlingTrainerMemory = 3;
+                pk.HandlingTrainerMemoryVariable = 9;
+                pk.HandlingTrainerMemoryIntensity = 1;
+                pk.HandlingTrainerMemoryFeeling = MemoryContext6.GetRandomFeeling6(pk.HandlingTrainerMemory, 10); // 0-9
+                pk.HandlingTrainerFriendship = pk.OriginalTrainerFriendship;
             }
         }
 
@@ -422,26 +426,26 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
         return pk;
     }
 
-    private void SetEggMetData(PKM pk)
+    private void SetEggMetData(PK6 pk)
     {
         pk.IsEgg = true;
         pk.EggMetDate = Date;
-        pk.Nickname = SpeciesName.GetSpeciesNameGeneration(0, pk.Language, Generation);
+        pk.Nickname = SpeciesName.GetEggName(pk.Language, Generation);
         pk.IsNicknamed = true;
     }
 
-    private void SetPINGA(PKM pk, EncounterCriteria criteria)
+    private void SetPINGA(PK6 pk, in EncounterCriteria criteria)
     {
-        var pi = PersonalTable.AO.GetFormEntry(Species, Form);
-        pk.Nature = (int)criteria.GetNature((Nature)Nature);
+        var pi = pk.PersonalInfo;
+        pk.Nature = criteria.GetNature(Nature);
         pk.Gender = criteria.GetGender(Gender, pi);
         var av = GetAbilityIndex(criteria);
         pk.RefreshAbility(av);
         SetPID(pk);
-        SetIVs(pk);
+        SetIVs(pk, criteria);
     }
 
-    private int GetAbilityIndex(EncounterCriteria criteria) => AbilityType switch
+    private int GetAbilityIndex(in EncounterCriteria criteria) => AbilityType switch
     {
         00 or 01 or 02 => AbilityType, // Fixed 0/1/2
         03 or 04 => criteria.GetAbilityFromNumber(Ability), // 0/1 or 0/1/H
@@ -457,7 +461,7 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
         _ => AbilityPermission.Any12H,
     };
 
-    private void SetPID(PKM pk)
+    private void SetPID(PK6 pk)
     {
         switch (PIDType)
         {
@@ -468,8 +472,8 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
                 pk.PID = Util.Rand32();
                 break;
             case ShinyType6.Always: // Random Shiny
-                pk.PID = Util.Rand32();
-                pk.PID = (uint)(((pk.TID ^ pk.SID ^ (pk.PID & 0xFFFF)) << 16) | (pk.PID & 0xFFFF));
+                var low = Util.Rand32() & 0xFFFF;
+                pk.PID = (low ^ pk.TID16 ^ pk.SID16) << 16 | low;
                 break;
             case ShinyType6.Never: // Random Nonshiny
                 pk.PID = Util.Rand32();
@@ -490,31 +494,12 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
         value[5] = IV_SPD;
     }
 
-    private void SetIVs(PKM pk)
+    private void SetIVs(PK6 pk, in EncounterCriteria criteria)
     {
         Span<int> finalIVs = stackalloc int[6];
         GetIVs(finalIVs);
-        var ivflag = finalIVs.Find(iv => (byte)(iv - 0xFC) < 3);
         var rng = Util.Rand;
-        if (ivflag == 0) // Random IVs
-        {
-            for (int i = 0; i < finalIVs.Length; i++)
-            {
-                if (finalIVs[i] > 31)
-                    finalIVs[i] = rng.Next(32);
-            }
-        }
-        else // 1/2/3 perfect IVs
-        {
-            int IVCount = ivflag - 0xFB;
-            do { finalIVs[rng.Next(6)] = 31; }
-            while (finalIVs.Count(31) < IVCount);
-            for (int i = 0; i < finalIVs.Length; i++)
-            {
-                if (finalIVs[i] != 31)
-                    finalIVs[i] = rng.Next(32);
-            }
-        }
+        ApplyTemplateIVs(finalIVs, criteria, rng, _ => rng.Next(32));
         pk.SetIVs(finalIVs);
     }
 
@@ -524,29 +509,31 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
         {
             if (OTGender != 3)
             {
-                // Skip ID check if ORASDEMO Simulated wc6
+                // Skip ID check if it is an OR/AS Demo Simulated wc6
                 if (CardID != 0)
                 {
-                    if (SID != pk.SID) return false;
-                    if (TID != pk.TID) return false;
+                    if (SID16 != pk.SID16) return false;
+                    if (TID16 != pk.TID16) return false;
                 }
-                if (OTGender != pk.OT_Gender) return false;
+                if (OTGender != pk.OriginalTrainerGender) return false;
             }
-            if (!string.IsNullOrEmpty(OT_Name) && OT_Name != pk.OT_Name) return false;
+            if (IsOriginalTrainerNameSet && !IsMatchTrainerName(OriginalTrainerTrash, pk))
+                return false;
+
             if (PIDType == ShinyType6.FixedValue && pk.PID != PID) return false;
             if (!Shiny.IsValid(pk)) return false;
-            if (OriginGame != 0 && OriginGame != pk.Version) return false;
+            if (OriginGame != 0 && (GameVersion)OriginGame != pk.Version) return false;
             if (EncryptionConstant != 0 && EncryptionConstant != pk.EncryptionConstant) return false;
             if (Language != 0 && Language != pk.Language) return false;
         }
-        if (Form != evo.Form && !FormInfo.IsFormChangeable(Species, Form, pk.Form, pk.Format))
+        if (Form != evo.Form && !FormInfo.IsFormChangeable(Species, Form, pk.Form, Context, pk.Context))
             return false;
 
         if (IsEgg)
         {
-            if (EggLocation != pk.Egg_Location) // traded
+            if (EggLocation != pk.EggLocation) // traded
             {
-                if (pk.Egg_Location != Locations.LinkTrade6)
+                if (pk.EggLocation != Locations.LinkTrade6)
                     return false;
             }
             else if (PIDType == 0 && pk.IsShiny)
@@ -554,44 +541,87 @@ public sealed class WC6 : DataMysteryGift, IRibbonSetEvent3, IRibbonSetEvent4, I
                 return false; // can't be traded away for unshiny
             }
 
-            if (pk.IsEgg && !pk.IsNative)
+            if (pk is { IsEgg: true, Format: not 6 })
                 return false;
         }
         else
         {
-            if (!IsMatchEggLocation(pk)) return false;
-            if (MetLocation != pk.Met_Location) return false;
+            if (!IsMatchEggLocationInternal(pk)) return false;
+            if (Location != pk.MetLocation) return false;
         }
 
-        if (Level != pk.Met_Level) return false;
+        if (Level != pk.MetLevel) return false;
         if (Ball != pk.Ball) return false;
-        if (OTGender < 3 && OTGender != pk.OT_Gender) return false;
-        if (Nature != -1 && pk.Nature != Nature) return false;
+        if (OTGender < 3 && OTGender != pk.OriginalTrainerGender) return false;
+        if ((sbyte)Nature != -1 && pk.Nature != Nature) return false;
         if (Gender != 3 && Gender != pk.Gender) return false;
 
-        if (pk is IContestStats s && s.IsContestBelow(this))
+        if (pk is IContestStatsReadOnly s && s.IsContestBelow(this))
             return false;
 
         return true;
+    }
+
+    private bool IsMatchTrainerName(ReadOnlySpan<byte> trainerTrash, PKM pk)
+    {
+        Span<char> trainerName = stackalloc char[12];
+        int length = StringConverter6.LoadString(trainerTrash, trainerName);
+        trainerName = trainerName[..length];
+
+        Span<char> pkTrainerName = stackalloc char[pk.MaxStringLengthTrainer];
+        int pkLength = pk.LoadString(pk.OriginalTrainerTrash, pkTrainerName);
+        pkTrainerName = pkTrainerName[..pkLength];
+
+        if (length == pkLength && trainerName.SequenceEqual(pkTrainerName))
+            return true;
+
+        var language = (LanguageID)pk.Language;
+        var version = pk.Version;
+        if (ReplaceTrainerName7.IsTriggerAndReplace(trainerName, pkTrainerName, language, version))
+            return true;
+        if (pk.Context is not EntityContext.Gen7)
+        {
+            var other = ReplaceTrainerNameHOME.IsTriggerAndReplace(trainerName, pkTrainerName, language, version, Species, Form);
+            if (other is not EntityContext.None)
+                return true;
+        }
+        return false;
     }
 
     protected override bool IsMatchDeferred(PKM pk)
     {
         switch (CardID)
         {
+            case 0184 when Species != pk.Species && pk.OriginalTrainerFriendship != PersonalTable.AO[Species].BaseFriendship: // Eevee Evolutions
             case 0525 when IV_HP == 0xFE: // Diancie was distributed with no IV enforcement & 3IVs
             case 0504 when RibbonClassic != ((IRibbonSetEvent4)pk).RibbonClassic: // Magmar with/without classic
                 return true;
         }
-        return Species != pk.Species;
+        return false;
     }
+
+    public override GameVersion Version => RestrictVersion switch
+    {
+        1 => GameVersion.X,
+        2 => GameVersion.Y,
+        3 => GameVersion.XY,
+        4 => GameVersion.AS,
+        8 => GameVersion.OR,
+        12 => GameVersion.ORAS,
+        _ => GameVersion.Gen6,
+    };
 
     protected override bool IsMatchPartial(PKM pk)
     {
         if (RestrictLanguage != 0 && RestrictLanguage != pk.Language)
             return true;
         if (!CanBeReceivedByVersion(pk.Version))
-            return true;
+        {
+            if (!IsEgg || pk.IsEgg)
+                return true;
+            if (pk.EggLocation != Locations.LinkTrade6)
+                return true;
+        }
         return false;
     }
 }

@@ -1,243 +1,191 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-
-using static PKHeX.Core.MysteryGiftGenerator;
-using static PKHeX.Core.EncounterTradeGenerator;
-using static PKHeX.Core.EncounterSlotGenerator;
-using static PKHeX.Core.EncounterStaticGenerator;
-using static PKHeX.Core.EncounterEggGenerator;
-using static PKHeX.Core.EncounterMatchRating;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using static PKHeX.Core.RandomCorrelationRating;
 
 namespace PKHeX.Core;
 
-public static class EncounterGenerator3
+public sealed class EncounterGenerator3 : IEncounterGenerator
 {
-    public static IEnumerable<IEncounterable> GetEncounters(PKM pk, LegalInfo info)
+    public static readonly EncounterGenerator3 Instance = new();
+    public bool CanGenerateEggs => true;
+
+    public IEnumerable<IEncounterable> GetPossible(PKM _, EvoCriteria[] chain, GameVersion version, EncounterTypeGroup groups)
     {
-        if (pk.Version == (int) GameVersion.CXD)
-            return GetEncounters3CXD(pk, info);
-        return GetEncounters3(pk, info);
+        var iterator = new EncounterPossible3(chain, groups, version);
+        foreach (var enc in iterator)
+            yield return enc;
     }
 
-    private static IEnumerable<IEncounterable> GetEncounters3(PKM pk, LegalInfo info)
+    public IEnumerable<IEncounterable> GetEncounters(PKM pk, LegalInfo info)
     {
+        var chain = EncounterOrigin.GetOriginChain(pk, 3, Context);
+        return GetEncounters(pk, chain, info);
+    }
+
+    private enum DeferralType
+    {
+        // Legal
+        None,
+        PIDIVDefer,
+        SlotNumber,
+
+        // Illegal
+        Ball,
+        PIDIV,
+    }
+
+    private struct Deferral
+    {
+        public DeferralType Type;
+        public IEncounterable? Encounter;
+
+        public void Update(DeferralType type, IEncounterable enc)
+        {
+            if (type >= Type && Encounter is not null)
+                return;
+            Type = type;
+            Encounter = enc;
+        }
+    }
+
+    public IEnumerable<IEncounterable> GetEncounters(PKM pk, EvoCriteria[] chain, LegalInfo info)
+    {
+        if (chain.Length == 0)
+            yield break;
+
         info.PIDIV = MethodFinder.Analyze(pk);
-        IEncounterable? Partial = null;
+        var game = pk.Version;
+        var iterator = new EncounterEnumerator3(pk, chain, game);
+        Deferral defer = default;
+        var leadQueue = new LeadEncounterQueue<EncounterSlot3>();
 
-        foreach (var z in GenerateRawEncounters3(pk, info))
+        bool emerald = pk.E;
+        byte gender = pk.Gender;
+        if (pk.Species is (int)Species.Marill or (int)Species.Azumarill)
+            gender = EntityGender.GetFromPID(pk.EncryptionConstant, EntityGender.MM);
+
+        foreach (var enc in iterator)
         {
-            if (info.PIDIV.Type.IsCompatible3(z, pk))
-                yield return z;
-            else
-                Partial ??= z;
+            var e = enc.Encounter;
+            var typeCheck = IsTypeCompatible(e, pk, ref info.GetPIDIVRef());
+            if (typeCheck is not Match)
+            {
+                var rating = typeCheck == NotIdeal
+                    ? DeferralType.PIDIVDefer
+                    : DeferralType.PIDIV;
+                defer.Update(rating, e);
+                continue;
+            }
+            if (!IsBallCompatible(e, pk))
+            {
+                defer.Update(DeferralType.Ball, e);
+                continue;
+            }
+            if (e is not EncounterSlot3 slot)
+            {
+                yield return e;
+                continue;
+            }
+
+            var evo = LeadFinder.GetLevelConstraint(pk, chain, slot, 3);
+            var lead = LeadFinder.GetLeadInfo3(slot, info.PIDIV, evo, emerald, gender, pk.Format);
+            if (!lead.IsValid)
+            {
+                defer.Update(DeferralType.SlotNumber, slot);
+                continue;
+            }
+            leadQueue.Insert(lead, slot);
         }
-        if (Partial == null)
+
+        foreach (var cache in leadQueue.List)
+        {
+            info.PIDIV = info.PIDIV.AsEncounteredVia(cache.Lead);
+            yield return cache.Encounter;
+        }
+        // vBlanks lead to imperfect lead analysis; just yield whatever else we have instead of early returning nothing.
+        //if (leadQueue.List.Count != 0)
+        //    yield break;
+
+        // Errors will be flagged later for those not manually handled below.
+        if (defer.Encounter is not { } lastResort)
             yield break;
-
-        info.PIDIVMatches = false;
-        yield return Partial;
+        if (defer.Type is DeferralType.PIDIV)
+            info.ManualFlag = EncounterYieldFlag.InvalidPIDIV;
+        else if (defer.Type is DeferralType.SlotNumber)
+            info.ManualFlag = EncounterYieldFlag.InvalidFrame;
+        yield return lastResort;
     }
 
-    private static IEnumerable<IEncounterable> GetEncounters3CXD(PKM pk, LegalInfo info)
+    private static bool IsBallCompatible(IFixedBall e, PKM pk) => e.FixedBall switch
     {
-        info.PIDIV = MethodFinder.Analyze(pk);
-        IEncounterable? Partial = null;
-        foreach (var z in GenerateRawEncounters3CXD(pk))
-        {
-            if (z is EncounterSlot3PokeSpot w)
-            {
-                var seeds = MethodFinder.GetPokeSpotSeeds(pk, w.SlotNumber);
-                foreach (var s in seeds)
-                {
-                    info.PIDIV = s;
-                    break;
-                }
-            }
-            else if (z is EncounterStaticShadow s)
-            {
-                bool valid = GetIsShadowLockValid(pk, info, s);
-                if (!valid)
-                {
-                    Partial ??= s;
-                    continue;
-                }
-            }
+        Ball.Safari when pk.Ball is (byte)Ball.Safari => true,
+        _ => pk.Ball is not (byte)Ball.Safari,
+    };
 
-            if (info.PIDIV.Type.IsCompatible3(z, pk))
-                yield return z;
-            else
-                Partial ??= z;
-        }
-        if (Partial == null)
-            yield break;
-
-        info.PIDIVMatches = false;
-        yield return Partial;
+    private static RandomCorrelationRating IsTypeCompatible(IEncounterTemplate enc, PKM pk, ref PIDIV pidiv)
+    {
+        if (enc is IRandomCorrelationEvent3 revise)
+            return revise.IsCompatibleReviseReset(ref pidiv, pk);
+        var type = pidiv.Type;
+        if (enc is IRandomCorrelation r)
+            return r.IsCompatible(type, pk);
+        return type is PIDType.None ? Match : Mismatch;
     }
 
-    private static IEnumerable<IEncounterable> GenerateRawEncounters3CXD(PKM pk)
+    private const EntityContext Context = EntityContext.Gen3;
+    private const byte EggLevel = EncounterEgg3.Level;
+
+    private static EncounterEgg3 CreateEggEncounter(ushort species, GameVersion version) => new(species, version);
+
+    private static (ushort Species, byte Form) GetBaby(EvoCriteria lowest)
     {
-        var chain = EncounterOrigin.GetOriginChain(pk);
-
-        var game = (GameVersion)pk.Version;
-        // Mystery Gifts
-        foreach (var z in GetValidGifts(pk, chain, game))
-        {
-            // Don't bother deferring matches.
-            var match = z.GetMatchRating(pk);
-            if (match != PartialMatch)
-                yield return z;
-        }
-
-        // Trades
-        foreach (var z in GetValidEncounterTrades(pk, chain, game))
-        {
-            // Don't bother deferring matches.
-            var match = z.GetMatchRating(pk);
-            if (match != PartialMatch)
-                yield return z;
-        }
-
-        IEncounterable? partial = null;
-
-        // Static Encounter
-        foreach (var z in GetValidStaticEncounter(pk, chain, game))
-        {
-            var match = z.GetMatchRating(pk);
-            if (match == PartialMatch)
-                partial ??= z;
-            else
-                yield return z;
-        }
-
-        // Encounter Slots
-        foreach (var z in GetValidWildEncounters(pk, chain, game))
-        {
-            var match = z.GetMatchRating(pk);
-            if (match == PartialMatch)
-            {
-                partial ??= z;
-                continue;
-            }
-            yield return z;
-        }
-
-        if (partial is not null)
-            yield return partial;
+        return EvolutionTree.Evolves3.GetBaseSpeciesForm(lowest.Species, lowest.Form);
     }
 
-    private static IEnumerable<IEncounterable> GenerateRawEncounters3(PKM pk, LegalInfo info)
+    public static bool TryGetEgg(ReadOnlySpan<EvoCriteria> chain, GameVersion version, [NotNullWhen(true)] out EncounterEgg3? result)
     {
-        var chain = EncounterOrigin.GetOriginChain(pk);
-        var game = (GameVersion)pk.Version;
+        result = null;
+        var devolved = chain[^1];
+        if (!devolved.InsideLevelRange(EggLevel))
+            return false;
 
-        // Mystery Gifts
-        foreach (var z in GetValidGifts(pk, chain, game))
-        {
-            // Don't bother deferring matches.
-            var match = z.GetMatchRating(pk);
-            if (match != PartialMatch)
-                yield return z;
-        }
+        // Ensure most devolved species is the same as the egg species.
+        var (species, form) = GetBaby(devolved);
+        if (species != devolved.Species && !Breeding.IsSplitBreedNotBabySpecies3(devolved.Species))
+            return false; // not a split-breed.
 
-        // Trades
-        foreach (var z in GetValidEncounterTrades(pk, chain, game))
-        {
-            // Don't bother deferring matches.
-            var match = z.GetMatchRating(pk);
-            if (match != PartialMatch)
-                yield return z;
-        }
+        // Sanity Check 1
+        if (!Breeding.CanHatchAsEgg(species))
+            return false;
+        // Sanity Check 2
+        if (!Breeding.CanHatchAsEgg(species, form, Context))
+            return false;
+        // Sanity Check 3
+        if (!PersonalTable.E.IsPresentInGame(species, form))
+            return false;
 
-        IEncounterable? deferred = null;
-        IEncounterable? partial = null;
-
-        // Static Encounter
-        // Defer everything if Safari Ball
-        bool safari = pk.Ball == 0x05; // never static encounters
-        if (!safari)
-        {
-            foreach (var z in GetValidStaticEncounter(pk, chain, game))
-            {
-                var match = z.GetMatchRating(pk);
-                if (match == PartialMatch)
-                    partial ??= z;
-                else
-                    yield return z;
-            }
-        }
-
-        // Encounter Slots
-        var slots = FrameFinder.GetFrames(info.PIDIV, pk).ToList();
-        foreach (var z in GetValidWildEncounters(pk, chain, game))
-        {
-            var match = z.GetMatchRating(pk);
-            if (match == PartialMatch)
-            {
-                partial ??= z;
-                continue;
-            }
-
-            var frame = slots.Find(s => s.IsSlotCompatibile((EncounterSlot3)z, pk));
-            if (frame == null)
-            {
-                deferred ??= z;
-                continue;
-            }
-            yield return z;
-        }
-
-        info.FrameMatches = false;
-        if (deferred is EncounterSlot3 x)
-            yield return x;
-
-        if (pk.Version != (int)GameVersion.CXD) // no eggs in C/XD
-        {
-            foreach (var z in GenerateEggs(pk, 3))
-                yield return z;
-        }
-
-        if (partial is EncounterSlot3 y)
-        {
-            var frame = slots.Find(s => s.IsSlotCompatibile(y, pk));
-            info.FrameMatches = frame != null;
-            yield return y;
-        }
-
-        // do static encounters if they were deferred to end, spit out any possible encounters for invalid pk
-        if (!safari)
-            yield break;
-
-        partial = null;
-
-        foreach (var z in GetValidStaticEncounter(pk, chain, game))
-        {
-            var match = z.GetMatchRating(pk);
-            if (match == PartialMatch)
-                partial ??= z;
-            else
-                yield return z;
-        }
-
-        if (partial is not null)
-            yield return partial;
+        result = CreateEggEncounter(species, version);
+        return true;
     }
 
-    private static bool GetIsShadowLockValid(PKM pk, LegalInfo info, EncounterStaticShadow s)
+    // Version is not updated when hatching an Egg in Gen3. Version is a clear indicator of the game it originated on.
+
+    public static bool TryGetSplit(EncounterEgg3 other, ReadOnlySpan<EvoCriteria> chain, [NotNullWhen(true)] out EncounterEgg3? result)
     {
-        if (s.IVs.Count == 0) // not E-Reader
-            return LockFinder.IsAllShadowLockValid(s, info.PIDIV, pk);
-
-        // E-Reader have fixed IVs, and aren't recognized as CXD (no PID-IV correlation).
-        var possible = MethodFinder.GetColoEReaderMatches(pk.EncryptionConstant);
-        foreach (var poss in possible)
+        result = null;
+        // Check for split-breed
+        var devolved = chain[^1];
+        if (other.Species == devolved.Species)
         {
-            if (!LockFinder.IsAllShadowLockValid(s, poss, pk))
-                continue;
-            info.PIDIV = poss;
-            return true;
+            if (chain.Length < 2)
+                return false; // no split-breed
+            devolved = chain[^2];
         }
+        if (!Breeding.IsSplitBreedNotBabySpecies3(devolved.Species))
+            return false;
 
-        return false;
+        result = other with { Species = devolved.Species };
+        return true;
     }
 }

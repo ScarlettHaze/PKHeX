@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -11,14 +11,14 @@ public partial class SAV_PokedexSM : Form
     private readonly SaveFile Origin;
     private readonly SAV7 SAV;
 
-    public SAV_PokedexSM(SaveFile sav)
+    public SAV_PokedexSM(SAV7 sav)
     {
         InitializeComponent();
         WinFormsUtil.TranslateInterface(this, Main.CurrentLanguage);
         SAV = (SAV7)(Origin = sav).Clone();
         Dex = SAV.Zukan;
-        CP = new[] { CHK_P1, CHK_P2, CHK_P3, CHK_P4, CHK_P5, CHK_P6, CHK_P7, CHK_P8, CHK_P9 };
-        CL = new[] { CHK_L1, CHK_L2, CHK_L3, CHK_L4, CHK_L5, CHK_L6, CHK_L7, CHK_L8, CHK_L9 };
+        CP = [CHK_P1, CHK_P2, CHK_P3, CHK_P4, CHK_P5, CHK_P6, CHK_P7, CHK_P8, CHK_P9];
+        CL = [CHK_L1, CHK_L2, CHK_L3, CHK_L4, CHK_L5, CHK_L6, CHK_L7, CHK_L8, CHK_L9];
 
         editing = true;
         // Clear Listbox and ComboBox
@@ -28,7 +28,7 @@ public partial class SAV_PokedexSM : Form
 
         // Fill List
         CB_Species.InitializeBinding();
-        CB_Species.DataSource = new BindingSource(GameInfo.FilteredSources.Species.Skip(1).ToList(), null);
+        CB_Species.DataSource = new BindingSource(GameInfo.FilteredSources.Species.Skip(1).ToList(), string.Empty);
 
         var Species = GameInfo.Strings.Species;
         var names = Dex.GetEntryNames(Species);
@@ -37,13 +37,11 @@ public partial class SAV_PokedexSM : Form
 
         editing = false;
         LB_Species.SelectedIndex = 0;
-        CB_Species.KeyDown += WinFormsUtil.RemoveDropCB;
     }
 
     private readonly Zukan7 Dex;
     private bool editing;
     private bool allModifying;
-    private int currentSpecies = -1;
     private readonly CheckBox[] CP, CL;
 
     private void ChangeCBSpecies(object sender, EventArgs e)
@@ -53,13 +51,17 @@ public partial class SAV_PokedexSM : Form
         SetEntry();
 
         editing = true;
-        currentSpecies = (int)CB_Species.SelectedValue;
-        LB_Species.SelectedIndex = currentSpecies - 1; // Since we don't allow index0 in combobox, everything is shifted by 1
+        var species = (ushort)WinFormsUtil.GetIndex(CB_Species);
+        SetCurrentIndex(species - 1);
         LB_Species.TopIndex = LB_Species.SelectedIndex;
         if (!allModifying) FillLBForms();
         GetEntry();
         editing = false;
     }
+
+    private int currentIndex = -1;
+    private int GetCurrentIndex() => currentIndex;
+    private void SetCurrentIndex(int index) => LB_Species.SelectedIndex = currentIndex = index;
 
     private void ChangeLBSpecies(object sender, EventArgs e)
     {
@@ -68,8 +70,10 @@ public partial class SAV_PokedexSM : Form
         SetEntry();
 
         editing = true;
-        currentSpecies = LB_Species.SelectedIndex + 1;
-        CB_Species.SelectedValue = currentSpecies;
+        SetCurrentIndex(LB_Species.SelectedIndex);
+        var index = GetCurrentIndex();
+        var species = Dex.GetBaseSpecies(index);
+        CB_Species.SelectedValue = (int)species;
         if (!allModifying)
             FillLBForms();
         GetEntry();
@@ -83,87 +87,69 @@ public partial class SAV_PokedexSM : Form
         SetEntry();
 
         editing = true;
-        int fspecies = LB_Species.SelectedIndex + 1;
-        var bspecies = Dex.GetBaseSpecies(fspecies);
-        int form = LB_Forms.SelectedIndex;
-        if (form > 0)
-        {
-            int fc = SAV.Personal[bspecies].FormCount;
-            if (fc > 1) // actually has forms
-            {
-                int f = Dex.GetDexFormIndex(bspecies, fc, form);
-                currentSpecies = f >= 0 ? f + 1 : bspecies;
-            }
-            else
-            {
-                currentSpecies = bspecies;
-            }
-        }
-        else
-        {
-            currentSpecies = bspecies;
-        }
+        var index = GetCurrentIndex();
+        var species = Dex.GetBaseSpecies(index);
+        var form = (byte)LB_Forms.SelectedIndex;
+        index = Dex.GetEntryIndex(species, form);
+        SetCurrentIndex(index);
 
-        CB_Species.SelectedValue = currentSpecies;
-        LB_Species.SelectedIndex = currentSpecies - 1;
-        LB_Species.TopIndex = LB_Species.SelectedIndex;
+        CB_Species.SelectedValue = (int)species;
+        LB_Species.TopIndex = index;
         GetEntry();
         editing = false;
     }
 
-    private bool FillLBForms()
+    private void FillLBForms()
     {
         if (allModifying)
-            return false;
+            return;
         LB_Forms.DataSource = null;
         LB_Forms.Items.Clear();
 
-        int fspecies = LB_Species.SelectedIndex + 1;
-        var bspecies = Dex.GetBaseSpecies(fspecies);
-        bool hasForms = FormInfo.HasFormSelection(SAV.Personal[bspecies], bspecies, 7);
+        var index = GetCurrentIndex();
+        var species = Dex.GetBaseSpecies(index);
+        bool hasForms = FormInfo.HasFormSelection(SAV.Personal[species], species, 7);
         LB_Forms.Enabled = hasForms;
         if (!hasForms)
-            return false;
-        var ds = FormConverter.GetFormList(bspecies, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Generation).ToList();
+            return;
+        var ds = FormConverter.GetFormList(species, GameInfo.Strings.types, GameInfo.Strings.forms, Main.GenderSymbols, SAV.Context).ToList();
         if (ds.Count == 1 && string.IsNullOrEmpty(ds[0]))
         {
             // empty
             LB_Forms.Enabled = false;
-            return false;
+            return;
         }
 
-        // sanity check forms -- SM does not have totem form dex bits
-        int count = SAV.Personal[bspecies].FormCount;
+        // sanity check forms -- S/M does not have totem form dex bits
+        int count = SAV.Personal[species].FormCount;
         if (count < ds.Count)
             ds.RemoveAt(count); // remove last
 
         LB_Forms.DataSource = ds;
-        if (fspecies <= SAV.MaxSpeciesID)
+        if (index < SAV.MaxSpeciesID)
         {
             LB_Forms.SelectedIndex = 0;
         }
         else
         {
-            int fc = SAV.Personal[bspecies].FormCount;
+            var fc = SAV.Personal[species].FormCount;
             if (fc <= 1)
-                return true;
+                return;
 
-            int f = Dex.GetDexFormIndex(bspecies, fc, 0);
+            int f = Dex.GetCountFormsPriorTo(species, fc);
             if (f < 0)
-                return true; // bit index valid
-
-            var findex = fspecies - f - 1;
-            if (findex < LB_Forms.Items.Count)
-                LB_Forms.SelectedIndex = findex;
+                return; // bit index valid
+            var form = index - f - (SAV.MaxSpeciesID - 1);
+            if (form < LB_Forms.Items.Count)
+                LB_Forms.SelectedIndex = form;
             else
                 LB_Forms.SelectedIndex = -1;
         }
-        return true;
     }
 
     private void ChangeDisplayed(object sender, EventArgs e)
     {
-        if (!((CheckBox) sender).Checked)
+        if (!((CheckBox)sender).Checked)
             return;
 
         CHK_P6.Checked = sender == CHK_P6;
@@ -198,58 +184,59 @@ public partial class SAV_PokedexSM : Form
 
     private void GetEntry()
     {
-        int pk = currentSpecies - 1;
+        var index = GetCurrentIndex();
+        var species = (ushort)(index + 1);
+        bool isSpeciesEntry = species <= SAV.MaxSpeciesID;
         editing = true;
-        CHK_P1.Enabled = currentSpecies <= SAV.MaxSpeciesID;
-        CHK_P1.Checked = CHK_P1.Enabled && Dex.GetCaught(currentSpecies);
 
-        int gt = Dex.GetBaseSpeciesGenderValue(LB_Species.SelectedIndex);
+        CHK_P1.Enabled = isSpeciesEntry;
+        CHK_P1.Checked = Dex.GetCaught(species);
 
-        bool canBeMale = gt != PersonalInfo.RatioMagicFemale;
-        bool canBeFemale = gt is not (PersonalInfo.RatioMagicMale or PersonalInfo.RatioMagicGenderless);
+        var gt = Dex.GetBaseSpeciesGenderValue(index);
+        var canBeMale = gt != PersonalInfo.RatioMagicFemale;
+        var canBeFemale = gt is not (PersonalInfo.RatioMagicMale or PersonalInfo.RatioMagicGenderless);
         CHK_P2.Enabled = CHK_P4.Enabled = CHK_P6.Enabled = CHK_P8.Enabled = canBeMale; // Not Female-Only
         CHK_P3.Enabled = CHK_P5.Enabled = CHK_P7.Enabled = CHK_P9.Enabled = canBeFemale; // Not Male-Only and Not Genderless
 
         for (int i = 0; i < 4; i++)
-            CP[i + 1].Checked = Dex.GetSeen(currentSpecies, i);
+            CP[i + 1].Checked = Dex.GetSeen(species, i);
 
         for (int i = 0; i < 4; i++)
-            CP[i + 5].Checked = Dex.GetDisplayed(pk, i);
+            CP[i + 5].Checked = Dex.GetDisplayed(index, i);
 
         for (int i = 0; i < 9; i++)
         {
-            CL[i].Enabled = currentSpecies <= SAV.MaxSpeciesID;
-            CL[i].Checked = CL[i].Enabled && Dex.GetLanguageFlag(pk, i);
+            CL[i].Enabled = isSpeciesEntry;
+            CL[i].Checked = CL[i].Enabled && Dex.GetLanguageFlag(index, i);
         }
         editing = false;
     }
 
     private void SetEntry()
     {
-        if (currentSpecies <= 0)
+        if (currentIndex < 0)
             return;
 
-        int pk = currentSpecies - 1;
+        var index = GetCurrentIndex();
+        var species = (ushort)(index + 1);
+        bool isSpeciesEntry = species <= SAV.MaxSpeciesID;
 
         for (int i = 0; i < 4; i++)
-            Dex.SetSeen(currentSpecies, i, CP[i + 1].Checked);
+            Dex.SetSeen(species, i, CP[i + 1].Checked);
 
         for (int i = 0; i < 4; i++)
-            Dex.SetDisplayed(pk, i, CP[i + 5].Checked);
+            Dex.SetDisplayed(index, i, CP[i + 5].Checked);
 
-        if (currentSpecies > SAV.MaxSpeciesID)
+        if (!isSpeciesEntry)
             return;
 
-        Dex.SetCaught(currentSpecies, CHK_P1.Checked);
+        Dex.SetCaught(species, CHK_P1.Checked);
 
         for (int i = 0; i < 9; i++)
-            Dex.SetLanguageFlag(pk, i, CL[i].Checked);
+            Dex.SetLanguageFlag(index, i, CL[i].Checked);
     }
 
-    private void B_Cancel_Click(object sender, EventArgs e)
-    {
-        Close();
-    }
+    private void B_Cancel_Click(object sender, EventArgs e) => Close();
 
     private void B_Save_Click(object sender, EventArgs e)
     {
@@ -260,26 +247,18 @@ public partial class SAV_PokedexSM : Form
 
     private void B_GiveAll_Click(object sender, EventArgs e)
     {
+        var index = GetCurrentIndex();
         if (CHK_L1.Enabled)
         {
-            CHK_L1.Checked =
-                CHK_L2.Checked =
-                    CHK_L3.Checked =
-                        CHK_L4.Checked =
-                            CHK_L5.Checked =
-                                CHK_L6.Checked =
-                                    CHK_L7.Checked =
-                                        CHK_L8.Checked =
-                                            CHK_L9.Checked = ModifierKeys != Keys.Control;
+            foreach (var cb in CL)
+                cb.Checked = ModifierKeys != Keys.Control;
         }
         if (CHK_P1.Enabled)
-        {
             CHK_P1.Checked = ModifierKeys != Keys.Control;
-        }
-        int gt = Dex.GetBaseSpeciesGenderValue(LB_Species.SelectedIndex);
 
-        bool canBeMale = gt != PersonalInfo.RatioMagicFemale;
-        bool canBeFemale = gt is not (PersonalInfo.RatioMagicMale or PersonalInfo.RatioMagicGenderless);
+        var gt = Dex.GetBaseSpeciesGenderValue(index);
+        var canBeMale = gt != PersonalInfo.RatioMagicFemale;
+        var canBeFemale = gt is not (PersonalInfo.RatioMagicMale or PersonalInfo.RatioMagicGenderless);
         CHK_P2.Checked = CHK_P4.Checked = canBeMale && ModifierKeys != Keys.Control;
         CHK_P3.Checked = CHK_P5.Checked = canBeFemale && ModifierKeys != Keys.Control;
 
@@ -318,7 +297,7 @@ public partial class SAV_PokedexSM : Form
         allModifying = false;
         LB_Forms.Enabled = LB_Forms.Visible = true;
         LB_Species.SelectedIndex = 0;
-        System.Media.SystemSounds.Asterisk.Play();
+        WinFormsUtil.Asterisk();
     }
 
     private void ClearAll(object sender)
@@ -339,19 +318,19 @@ public partial class SAV_PokedexSM : Form
 
     private void SetAll(object sender, int lang)
     {
-        for (int i = 0; i < SAV.MaxSpeciesID; i++)
+        for (ushort i = 1; i <= SAV.MaxSpeciesID; i++)
         {
-            int species = i + 1;
-            var gt = Dex.GetBaseSpeciesGenderValue(i);
+            var index = (ushort)(i - 1);
+            var gt = Dex.GetBaseSpeciesGenderValue(index);
 
             // Set base species flags
-            LB_Species.SelectedIndex = i;
+            LB_Species.SelectedIndex = index;
             SetSeen(sender, gt, false);
             if (sender != mnuSeenAll)
                 SetCaught(sender, gt, lang, false);
 
             // Set form flags
-            var entries = Dex.GetAllFormEntries(species).Where(z => z >= SAV.MaxSpeciesID).Distinct();
+            var entries = Dex.GetAllFormEntries(i).Where(z => z >= SAV.MaxSpeciesID).Distinct();
             foreach (var f in entries)
             {
                 LB_Species.SelectedIndex = f;
@@ -362,7 +341,7 @@ public partial class SAV_PokedexSM : Form
         }
     }
 
-    private void SetCaught(object sender, int gt, int lang, bool isForm)
+    private void SetCaught(object sender, byte gt, int lang, bool isForm)
     {
         CHK_P1.Checked = mnuCaughtNone != sender;
         for (int j = 0; j < CL.Length; j++)
@@ -384,7 +363,7 @@ public partial class SAV_PokedexSM : Form
         if (mnuComplete == sender)
         {
             // Seen All
-            foreach (var chk in new[] {CHK_P2, CHK_P3, CHK_P4, CHK_P5})
+            foreach (var chk in new[] { CHK_P2, CHK_P3, CHK_P4, CHK_P5 })
                 chk.Checked = chk.Enabled;
         }
         else
@@ -401,9 +380,9 @@ public partial class SAV_PokedexSM : Form
             (gt != PersonalInfo.RatioMagicFemale ? CHK_P6 : CHK_P7).Checked = CHK_P1.Enabled;
     }
 
-    private void SetSeen(object sender, int gt, bool isForm)
+    private void SetSeen(object sender, byte gt, bool isForm)
     {
-        foreach (CheckBox t in new[] {CHK_P2, CHK_P3, CHK_P4, CHK_P5})
+        foreach (CheckBox t in new[] { CHK_P2, CHK_P3, CHK_P4, CHK_P5 })
             t.Checked = mnuSeenNone != sender && t.Enabled;
 
         if (mnuSeenNone != sender)

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace PKHeX.Core;
 
@@ -33,67 +33,65 @@ public enum StorageSlotSource
 
 public static class StorageSlotSourceExtensions
 {
-    public static bool HasFlagFast(this StorageSlotSource value, StorageSlotSource source) => (value & source) != 0;
-
-    /// <summary>
-    /// Checks to see if the <see cref="StorageSlotSource"/> prevents the corresponding slot from being overwritten.
-    /// </summary>
-    /// <param name="value">Flag value</param>
-    /// <returns>True if write protected</returns>
-    public static bool IsOverwriteProtected(this StorageSlotSource value)
+    extension(StorageSlotSource value)
     {
-        if (value.HasFlagFast(StorageSlotSource.Locked))
-            return true;
+        /// <summary>
+        /// Checks to see if the <see cref="StorageSlotSource"/> prevents the corresponding slot from being overwritten.
+        /// </summary>
+        /// <returns>True if write protected</returns>
+        public bool IsOverwriteProtected()
+        {
+            if (value.HasFlag(StorageSlotSource.Locked))
+                return true;
 
-        if (value.HasFlagFast(StorageSlotSource.Starter))
-            return true;
+            if (value.HasFlag(StorageSlotSource.Starter))
+                return true;
 
-        return value.IsBattleTeam() >= 0;
-    }
+            return value.IsBattleTeam() >= 0;
+        }
 
-    /// <summary>
-    /// Gets the Battle Team ID the <see cref="value"/> belongs to
-    /// </summary>
-    /// <param name="value">Flag value</param>
-    /// <returns>Battle Team ID if valid, -1 otherwise.</returns>
-    public static int IsBattleTeam(this StorageSlotSource value)
-    {
-        if (value.HasFlagFast(StorageSlotSource.BattleTeam1))
-            return 0;
-        if (value.HasFlagFast(StorageSlotSource.BattleTeam2))
-            return 1;
-        if (value.HasFlagFast(StorageSlotSource.BattleTeam3))
-            return 2;
-        if (value.HasFlagFast(StorageSlotSource.BattleTeam4))
-            return 3;
-        if (value.HasFlagFast(StorageSlotSource.BattleTeam5))
-            return 4;
-        if (value.HasFlagFast(StorageSlotSource.BattleTeam6))
-            return 5;
+        /// <summary>
+        /// Gets the Battle Team ID the <see cref="value"/> belongs to
+        /// </summary>
+        /// <returns>Battle Team ID if valid, -1 otherwise.</returns>
+        public int IsBattleTeam()
+        {
+            if (value.HasFlag(StorageSlotSource.BattleTeam1))
+                return 0;
+            if (value.HasFlag(StorageSlotSource.BattleTeam2))
+                return 1;
+            if (value.HasFlag(StorageSlotSource.BattleTeam3))
+                return 2;
+            if (value.HasFlag(StorageSlotSource.BattleTeam4))
+                return 3;
+            if (value.HasFlag(StorageSlotSource.BattleTeam5))
+                return 4;
+            if (value.HasFlag(StorageSlotSource.BattleTeam6))
+                return 5;
 
-        return -1;
-    }
+            return -1;
+        }
 
-    /// <summary>
-    /// Gets the Party Slot Index the <see cref="value"/> belongs to
-    /// </summary>
-    /// <param name="value">Flag value</param>
-    /// <returns>[0,5] if valid, -1 otherwise.</returns>
-    public static int IsParty(this StorageSlotSource value)
-    {
-        if (value.HasFlagFast(StorageSlotSource.Party1))
-            return 0;
-        if (value.HasFlagFast(StorageSlotSource.Party2))
-            return 1;
-        if (value.HasFlagFast(StorageSlotSource.Party3))
-            return 2;
-        if (value.HasFlagFast(StorageSlotSource.Party4))
-            return 3;
-        if (value.HasFlagFast(StorageSlotSource.Party5))
-            return 4;
-        if (value.HasFlagFast(StorageSlotSource.Party6))
-            return 5;
+        /// <summary>
+        /// Gets the Party Slot Index the <see cref="value"/> belongs to
+        /// </summary>
+        /// <returns>[0,5] if valid, -1 otherwise.</returns>
+        public int IsParty()
+        {
+            if (value.HasFlag(StorageSlotSource.Party1))
+                return 0;
+            if (value.HasFlag(StorageSlotSource.Party2))
+                return 1;
+            if (value.HasFlag(StorageSlotSource.Party3))
+                return 2;
+            if (value.HasFlag(StorageSlotSource.Party4))
+                return 3;
+            if (value.HasFlag(StorageSlotSource.Party5))
+                return 4;
+            if (value.HasFlag(StorageSlotSource.Party6))
+                return 5;
 
-        return -1;
+            return -1;
+        }
     }
 }

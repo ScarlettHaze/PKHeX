@@ -1,11 +1,18 @@
-﻿using System.Collections.Generic;
+using System;
 using System.Text;
 using PKHeX.Core;
+using static PKHeX.Core.Species;
 
 namespace PKHeX.Drawing.PokeSprite;
 
+/// <summary>
+/// Logic for retrieving the resource names of Pokémon and related sprites.
+/// </summary>
 public static class SpriteName
 {
+    /// <summary>
+    /// Allows returning a Shiny sprite when available.
+    /// </summary>
     public static bool AllowShinySprite { get; set; }
 
     private const char Separator = '_';
@@ -16,15 +23,20 @@ public static class SpriteName
     /// <summary>
     /// Gets the resource name of the <see cref="Ball"/> sprite.
     /// </summary>
-    public static string GetResourceStringBall(int ball) => $"_ball{ball}";
+    public static string GetResourceStringBall(byte ball) => $"_ball{ball}";
 
     /// <summary>
     /// Gets the resource name of the Pokémon sprite.
     /// </summary>
-    public static string GetResourceStringSprite(int species, int form, int gender, uint formarg, int generation = PKX.Generation, bool shiny = false)
+    public static string GetResourceStringSprite(ushort species, byte form, byte gender, uint formarg, EntityContext context = Latest.Context, bool shiny = false)
     {
         if (SpeciesDefaultFormSprite.Contains(species)) // Species who show their default sprite regardless of Form
             form = 0;
+
+        // Starting in Legends: Z-A, Xerneas no longer has two forms, and it transitions to what was then-considered Active Mode when it attacks
+        // The in-game icon always displays it as active, so match that behavior here
+        if (species == (ushort)Xerneas && context == EntityContext.Gen9a)
+            form = 1;
 
         var sb = new StringBuilder(12); // longest expected string result
         sb.Append(Separator).Append(species);
@@ -33,19 +45,18 @@ public static class SpriteName
         {
             sb.Append(Separator).Append(form);
 
-            if (species == (int) Species.Pikachu)
+            if (species == (ushort)Pikachu)
             {
-                if (generation == 6)
+                if (context == EntityContext.Gen6)
                 {
                     sb.Append(Cosplay);
-                    gender = 1; // Cosplay Pikachu gift can only be Female, but personal entries are set to be either Gender
                 }
                 else if (form == 8)
                 {
                     sb.Append(GGStarter);
                 }
             }
-            else if (species == (int) Species.Eevee)
+            else if (species == (ushort)Eevee)
             {
                 if (form == 1)
                     sb.Append(GGStarter);
@@ -56,7 +67,7 @@ public static class SpriteName
             sb.Append('f');
         }
 
-        if (species == (int) Species.Alcremie)
+        if (species == (ushort)Alcremie)
         {
             if (form == 0)
                 sb.Append(Separator).Append(form);
@@ -71,29 +82,31 @@ public static class SpriteName
     /// <summary>
     /// Species that show their default Species sprite regardless of current <see cref="PKM.Form"/>
     /// </summary>
-    private static readonly HashSet<int> SpeciesDefaultFormSprite = new()
-    {
-        (int)Species.Mothim,
-        (int)Species.Scatterbug,
-        (int)Species.Spewpa,
-        (int)Species.Rockruff,
-        (int)Species.Mimikyu,
-        (int)Species.Sinistea,
-        (int)Species.Polteageist,
-        (int)Species.Urshifu,
-    };
+    private static ReadOnlySpan<ushort> SpeciesDefaultFormSprite =>
+    [
+        (ushort)Mothim,
+        (ushort)Scatterbug,
+        (ushort)Spewpa,
+        (ushort)Rockruff,
+        (ushort)Mimikyu,
+        (ushort)Sinistea,
+        (ushort)Polteageist,
+        (ushort)Urshifu,
+        (ushort)Dudunsparce,
+        (ushort)Poltchageist,
+        (ushort)Sinistcha,
+    ];
 
     /// <summary>
     /// Species that show a <see cref="PKM.Gender"/> specific Sprite
     /// </summary>
-    private static readonly HashSet<int> SpeciesGenderedSprite = new()
-    {
-        (int)Species.Pikachu,
-        (int)Species.Hippopotas,
-        (int)Species.Hippowdon,
-        (int)Species.Unfezant,
-        (int)Species.Frillish,
-        (int)Species.Jellicent,
-        (int)Species.Pyroar,
-    };
+    private static ReadOnlySpan<ushort> SpeciesGenderedSprite =>
+    [
+        (ushort)Hippopotas,
+        (ushort)Hippowdon,
+        (ushort)Unfezant,
+        (ushort)Frillish,
+        (ushort)Jellicent,
+        (ushort)Pyroar,
+    ];
 }
