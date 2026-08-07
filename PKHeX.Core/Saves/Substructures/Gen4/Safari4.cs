@@ -25,7 +25,7 @@ public sealed class Safari4(Memory<byte> Raw)
     /// </summary>
     public SafariLayout4 GetLayout(int index)
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, LayoutCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)LayoutCount);
         return new(Raw.Slice(index * SafariLayout4.SIZE, SafariLayout4.SIZE));
     }
 
@@ -91,7 +91,7 @@ public sealed class SafariLayout4(Memory<byte> Raw)
 
     public SafariBlock4 GetBlock(int index)
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, BlockCount);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)BlockCount);
         return new(Raw.Slice(index * SafariBlock4.SIZE, SafariBlock4.SIZE));
     }
 
@@ -136,7 +136,7 @@ public sealed class SafariBlock4(Memory<byte> Raw)
 
     public SafariObject4 GetObject(int index)
     {
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, ObjectCountMax);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)ObjectCountMax);
         return new(Raw.Slice(OfsObjects + (index * SafariObject4.SIZE), SafariObject4.SIZE));
     }
 
