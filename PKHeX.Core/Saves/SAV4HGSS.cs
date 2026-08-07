@@ -289,7 +289,7 @@ public sealed class SAV4HGSS : SAV4, IBoxDetailName, IBoxDetailWallpaper
     public int GetApricornCount(int index) => General[OFS_Apricorn + index];
     public void SetApricornCount(int index, int count) => General[OFS_Apricorn + index] = (byte)count;
 
-    // Apricorns currently deposited with Kurt, immediately after the pouch.
+    // Apricorns currently deposited with Kurt.
     private const int OFS_ApricornKurtNum = OFS_Apricorn + ApricornCount; // 0xE55F
     private const int OFS_ApricornKurtColor = OFS_ApricornKurtNum + 1; // 0xE560
 
@@ -310,6 +310,12 @@ public sealed class SAV4HGSS : SAV4, IBoxDetailName, IBoxDetailWallpaper
         get => (Apricorn4Color)General[OFS_ApricornKurtColor];
         set => General[OFS_ApricornKurtColor] = (byte)value;
     }
+
+    /// <summary>
+    /// Apricorn juice-making minigame state (stock, in-progress batch, brewing timers). Overlaps the same
+    /// bytes as the pouch and Kurt-deposit fields above.
+    /// </summary>
+    public ApricornJuice4 ApricornJuice => new(GeneralBuffer.Slice(OFS_Apricorn, ApricornJuice4.SIZE));
 
     // Pokewalker
     public const int WalkerPair = 0xE5E0;
