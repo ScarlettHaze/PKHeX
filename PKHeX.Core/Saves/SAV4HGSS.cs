@@ -281,6 +281,8 @@ public sealed class SAV4HGSS : SAV4, IBoxDetailName, IBoxDetailWallpaper
 
     public Pokeathlon4 Pokeathlon => new(GeneralBuffer.Slice(0xD9D4, Pokeathlon4.SIZE)); // 0xB80
 
+    public Safari4 Safari => new(GeneralBuffer.Slice(0xC13C, Safari4.SIZE));
+
     // Apricorn Pouch
     public int GetApricornCount(int index) => General[0xE558 + index];
     public void SetApricornCount(int index, int count) => General[0xE558 + index] = (byte)count;
